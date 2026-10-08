@@ -42,7 +42,7 @@ public class ProcessSkill : ISkill
 
     public Task<SkillResult> ExecuteAsync(string userInput, Dictionary<string, string> parameters)
     {
-        string lower = userInput.ToLowerInvariant();
+        string lower = userInput.ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
         // Bilinen uygulamaları kontrol et
         foreach (var (key, exe) in KnownApps)
@@ -100,3 +100,4 @@ public class ProcessSkill : ISkill
         return "";
     }
 }
+

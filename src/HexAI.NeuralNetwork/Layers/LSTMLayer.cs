@@ -139,16 +139,17 @@ public class LSTMLayer : ILayer, IRecurrentLayer
         for (int i = 0; i < InputSize; i++) inputError[i, 0] = dConcat[NeuronCount + i, 0];
 
         // Ağırlık ve Bias güncellemeleri
-        _Wf = _Wf - optimizer.ComputeUpdate(dWf, _Wf);
-        _Wi = _Wi - optimizer.ComputeUpdate(dWi, _Wi);
-        _Wc = _Wc - optimizer.ComputeUpdate(dWc, _Wc);
-        _Wo = _Wo - optimizer.ComputeUpdate(dWo, _Wo);
+        _Wf.SubtractInPlace(optimizer.ComputeUpdate(dWf, _Wf));
+        _Wi.SubtractInPlace(optimizer.ComputeUpdate(dWi, _Wi));
+        _Wc.SubtractInPlace(optimizer.ComputeUpdate(dWc, _Wc));
+        _Wo.SubtractInPlace(optimizer.ComputeUpdate(dWo, _Wo));
 
-        _bf = _bf - optimizer.ComputeUpdate(df_t_raw, _bf);
-        _bi = _bi - optimizer.ComputeUpdate(di_t_raw, _bi);
-        _bc = _bc - optimizer.ComputeUpdate(dc_tilde_raw, _bc);
-        _bo = _bo - optimizer.ComputeUpdate(do_t_raw, _bo);
+        _bf.SubtractInPlace(optimizer.ComputeUpdate(df_t_raw, _bf));
+        _bi.SubtractInPlace(optimizer.ComputeUpdate(di_t_raw, _bi));
+        _bc.SubtractInPlace(optimizer.ComputeUpdate(dc_tilde_raw, _bc));
+        _bo.SubtractInPlace(optimizer.ComputeUpdate(do_t_raw, _bo));
 
         return inputError;
     }
 }
+

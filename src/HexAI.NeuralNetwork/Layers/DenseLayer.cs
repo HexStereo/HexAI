@@ -115,8 +115,8 @@ public class DenseLayer : ILayer
         var inputGradient = _weights.Transpose() * delta;
 
         // Ağırlık ve Biasları güncelle (Optimizer kullanarak)
-        _weights = _weights - optimizer.ComputeUpdate(weightGradients, _weights);
-        _biases = _biases - optimizer.ComputeUpdate(delta, _biases);
+        _weights.SubtractInPlace(optimizer.ComputeUpdate(weightGradients, _weights));
+        _biases.SubtractInPlace(optimizer.ComputeUpdate(delta, _biases));
 
         return inputGradient;
     }
@@ -131,3 +131,4 @@ public class DenseLayer : ILayer
         return $"DenseLayer(in={InputSize}, out={NeuronCount}, activation={Activation.Name})";
     }
 }
+

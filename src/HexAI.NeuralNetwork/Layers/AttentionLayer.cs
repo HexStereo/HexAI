@@ -144,9 +144,9 @@ public class AttentionLayer : ILayer
         Matrix gradWv = _InputReshaped.Transpose() * dV;
 
         // Ağırlıkları güncelle
-        _Wq = _Wq - optimizer.ComputeUpdate(gradWq, _Wq);
-        _Wk = _Wk - optimizer.ComputeUpdate(gradWk, _Wk);
-        _Wv = _Wv - optimizer.ComputeUpdate(gradWv, _Wv);
+        _Wq.SubtractInPlace(optimizer.ComputeUpdate(gradWq, _Wq));
+        _Wk.SubtractInPlace(optimizer.ComputeUpdate(gradWk, _Wk));
+        _Wv.SubtractInPlace(optimizer.ComputeUpdate(gradWv, _Wv));
 
         // Önceki katmana iletilecek hata: dInput = dQ*Wq^T + dK*Wk^T + dV*Wv^T
         Matrix dInput = (dQ * _Wq.Transpose()) + (dK * _Wk.Transpose()) + (dV * _Wv.Transpose());
@@ -164,3 +164,4 @@ public class AttentionLayer : ILayer
         return flattenedError;
     }
 }
+

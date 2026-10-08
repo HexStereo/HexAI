@@ -48,7 +48,7 @@ public class MathSkill : ISkill
     /// </summary>
     private string NormalizeMathExpression(string input)
     {
-        string expr = input.ToLowerInvariant();
+        string expr = input.ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
         // Türkçe kelime → operatör
         expr = Regex.Replace(expr, @"\bartı\b", "+");
@@ -107,3 +107,4 @@ public class MathSkill : ISkill
         return Convert.ToDouble(result);
     }
 }
+

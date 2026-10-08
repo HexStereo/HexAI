@@ -89,10 +89,11 @@ public class RNNLayer : IRecurrentLayer
         // Önceki katmana (eğer varsa) iletilecek hata
         var inputError = _weightHx.Transpose() * delta;
 
-        _weightHh = _weightHh - optimizer.ComputeUpdate(gradWh, _weightHh);
-        _weightHx = _weightHx - optimizer.ComputeUpdate(gradWx, _weightHx);
-        _biasH = _biasH - optimizer.ComputeUpdate(delta, _biasH);
+        _weightHh.SubtractInPlace(optimizer.ComputeUpdate(gradWh, _weightHh));
+        _weightHx.SubtractInPlace(optimizer.ComputeUpdate(gradWx, _weightHx));
+        _biasH.SubtractInPlace(optimizer.ComputeUpdate(delta, _biasH));
 
         return inputError;
     }
 }
+

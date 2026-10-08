@@ -37,7 +37,7 @@ public class PowerShellSkill : ISkill
             return SkillResult.Fail("Çalıştırılacak komut belirtilmedi.");
         }
 
-        string normalizedCmd = command.ToLowerInvariant();
+        string normalizedCmd = command.ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
         // Yasaklı komut kontrolü
         foreach (var blocked in BlockedPatterns)
@@ -113,3 +113,4 @@ public class PowerShellSkill : ISkill
         return string.IsNullOrWhiteSpace(output) ? "" : output.Trim();
     }
 }
+

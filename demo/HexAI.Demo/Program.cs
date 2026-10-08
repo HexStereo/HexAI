@@ -32,6 +32,12 @@ class Program
         // Demo 4: Transformer & Mini-GPT Kelime Tabanlı Metin Üretimi
         DemoRNN();
 
+        // Demo 5: Multi-Agent Pipeline Sistemi
+        DemoMultiAgent();
+
+        // Demo 6: LLM & Assistant CLI üzerinden test edilebilir
+        // DemoVerificationPipeline();
+
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine("  🎉 Tüm odaklanmış Transformer ve Core demoları başarıyla tamamlandı!");
@@ -186,6 +192,54 @@ class Program
         string generated2 = miniGpt.Generate(seedText: seed2, generateLength: 2);
         Console.WriteLine($"  [Üretim 2] Başlangıç: '{seed2}' -> Sonuç: {generated2}");
 
+        PrintSectionFooter();
+    }
+
+    static void DemoMultiAgent()
+    {
+        PrintSectionHeader("🤖 Demo 5: Multi-Agent Sistemi (Pipeline)");
+
+        Console.WriteLine("  Senaryo: Bir görev, Fikir Üretici -> Mimari Tasarımcı -> Kodlayıcı zincirinde işleniyor.");
+        Console.WriteLine("  (Not: Demo amaçlı olarak bu ajanlar küçük ve eğitilmemiş bir GPT modeli ile çalışacaktır.)\n");
+
+        // Hızlı çalışması için küçük boyutlu, rastgele bir model oluşturuyoruz.
+        var model = new HexAI.NLP.Generative.LargeGPT(hiddenSize: 8, numHeads: 1, numLayers: 1, sequenceLength: 5, learningRate: 0.1, seed: 42);
+        
+        // Hata vermemesi için çok kısa eğitiyoruz (Demo amaçlı)
+        model.Train("yapay zeka ile geleceği keşfetmek çok güzel", epochs: 1);
+
+        // Ajanları tanımlayalım 
+        var agent1 = new HexAI.Assistant.Agents.BaseAgent("Fikir Üretici", "Sen yaratıcı bir fikir üreticisisin.", model, generateLength: 3);
+        var agent2 = new HexAI.Assistant.Agents.BaseAgent("Mimari Tasarımcı", "Sen bir yazılım mimarısın.", model, generateLength: 3);
+        var agent3 = new HexAI.Assistant.Agents.BaseAgent("Kodlayıcı", "Sen bir yazılımcısın.", model, generateLength: 3);
+
+        var pipeline = new HexAI.Assistant.Agents.AgentPipeline();
+        pipeline.AddAgent(agent1);
+        pipeline.AddAgent(agent2);
+        pipeline.AddAgent(agent3);
+
+        string baslangic = "Bir oyun yapalım.";
+        Console.WriteLine($"  [Başlangıç Girdisi]: {baslangic}\n");
+
+        var resultTask = pipeline.RunAsync(baslangic, (ajanAdi, uretilenCikti) =>
+        {
+            Console.WriteLine($"  [{ajanAdi}]:");
+            Console.WriteLine($"  {uretilenCikti}\n");
+        });
+
+        // RunAsync task döndürdüğü için ve konsol uygulamasında olduğumuz için Wait() yapalım
+        resultTask.Wait();
+
+        Console.WriteLine($"  [Final Sonuç]:\n  {resultTask.Result}");
+
+        PrintSectionFooter();
+    }
+
+    static void DemoVerificationPipeline()
+    {
+        PrintSectionHeader("🔍 Demo 6: Dış LLM Doğrulama Pipeline");
+        Console.WriteLine("  HexAI v2.0 artık yerel GGUF LLM ve ReAct Ajan motorunu destekliyor.");
+        Console.WriteLine("  Etkileşimli sohbet ve araştırma için 'cli/HexAI.CLI' çalıştırın.");
         PrintSectionFooter();
     }
 

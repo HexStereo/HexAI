@@ -186,7 +186,7 @@ public class FileSystemSkill : ISkill
     /// </summary>
     private static string ResolveSpecialPath(string path)
     {
-        string lower = path.ToLowerInvariant().Trim();
+        string lower = path.ToLower(new System.Globalization.CultureInfo("tr-TR")).Trim();
         return lower switch
         {
             "masaüstü" or "desktop" => Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
@@ -205,7 +205,7 @@ public class FileSystemSkill : ISkill
     /// </summary>
     private static string ExtractPathFromInput(string input)
     {
-        string lower = input.ToLowerInvariant();
+        string lower = input.ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
         // Özel klasör adlarını kontrol et
         string[] specialNames = { "masaüstü", "desktop", "belgeler", "documents",
@@ -264,3 +264,4 @@ public class FileSystemSkill : ISkill
         return $"{len:0.#} {sizes[order]}";
     }
 }
+

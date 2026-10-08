@@ -6,6 +6,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Controls;
 using HexAI.Assistant;
+using HexAI.Assistant.Config;
+using HexAI.Assistant.Evaluation;
 using HexAI.Desktop.ViewModels;
 using HexAI.Desktop.Services;
 
@@ -21,6 +23,9 @@ public partial class MainWindow : Window
 
     private ChatSession _activeSession = null!;
     private bool _isVoiceListening = false;
+
+    // Son evaluation sonucu (tutarlılık raporu için saklanır)
+    private EvaluationResult? _lastEvaluationResult;
 
     public MainWindow()
     {
@@ -54,6 +59,10 @@ public partial class MainWindow : Window
         {
             AddMessage("Merhaba! 👋 Ben HexAI, senin kişisel masaüstü asistanın. Sana nasıl yardımcı olabilirim?", isUser: false, session: _activeSession);
         }
+
+        // UI'ı güncelle
+        UpdateProviderBadge();
+        UpdateTokenCounter();
         
         InputBox.Focus();
     }
@@ -92,21 +101,32 @@ public partial class MainWindow : Window
 
         AddMessage(input, isUser: true, session: currentSession);
 
-        // UI donmasın diye motoru task içinde çağırıyoruz
-        string response = await Task.Run(async () => await _engine.ProcessMessageAsync(input));
+        var msg = new ChatMessage { Text = "", IsUser = false };
+        currentSession.Messages.Add(msg);
+        if (currentSession == _activeSession) ScrollToBottom();
 
-        if (response == "exit")
+        int delay = _engine.Config.TypewriterDelayMs;
+
+        await foreach (var token in _engine.ProcessMessageStreamAsync(input))
         {
-            Application.Current.Shutdown();
-            return;
-        }
+            msg.Text += token + " ";
+            if (currentSession == _activeSession) ScrollToBottom();
 
-        await TypewriterEffect(response, currentSession);
+            if (delay > 0)
+            {
+                await Task.Delay(delay);
+            }
+        }
+        msg.Text = msg.Text.TrimEnd();
+        _sessionManager.SaveSession(currentSession);
 
         if (_engine.Config.VoiceOutputEnabled)
         {
-            _voiceManager.SpeakAsync(response);
+            _voiceManager.SpeakAsync(msg.Text);
         }
+
+        // Token sayacını güncelle
+        UpdateTokenCounter();
 
         InputBox.IsEnabled = true;
         SendButton.IsEnabled = true;
@@ -160,34 +180,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task TypewriterEffect(string text, ChatSession session)
-    {
-        var msg = new ChatMessage { Text = "", IsUser = false };
-        session.Messages.Add(msg);
-        
-        if (session == _activeSession) ScrollToBottom();
-
-        int delay = _engine.Config.TypewriterDelayMs;
-
-        foreach (char c in text)
-        {
-            msg.Text += c;
-            
-            if (session == _activeSession) ScrollToBottom();
-            
-            if (delay > 0)
-            {
-                await Task.Delay(c switch
-                {
-                    '.' or '!' or '?' => delay * 3,
-                    ',' => delay * 2,
-                    _ => delay
-                });
-            }
-        }
-        
-        _sessionManager.SaveSession(session);
-    }
+    // TypewriterEffect removed because we are now streaming tokens directly.
 
     private void ScrollToBottom()
     {
@@ -291,8 +284,126 @@ public partial class MainWindow : Window
         if (_engine != null)
         {
             string status = _engine.GetModelStatus();
-            MessageBox.Show(status, "HexAI Model Durumu", MessageBoxButton.OK, MessageBoxImage.Information);
+            string extra = $"\n\n🌐 Aktif Persona: {_engine.ActivePersonaName}" +
+                           $"\n📝 Sistem Prompt: {(_engine.Config.SystemPrompt.Length > 50 ? _engine.Config.SystemPrompt[..50] + "..." : _engine.Config.SystemPrompt)}" +
+                           $"\n🪙 Oturum Token: {_engine.Config.SessionTokensUsed}" +
+                           $"\n🪙 Toplam Token: {_engine.Config.TotalTokensUsed}" +
+                           $"\n📚 Bilgi Tabanı: {_engine.Knowledge.Count} giriş" +
+                           $"\n✅ Doğrulama: {(_engine.Config.EnableVerification ? "Açık" : "Kapalı")}";
+            MessageBox.Show(status + extra, "HexAI Ayarlar & Durum", MessageBoxButton.OK, MessageBoxImage.Information);
         }
+    }
+
+    // --- Evaluation Buttons ---
+
+    private async void EvaluationTest_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine == null) return;
+
+        AddMessage("🧪 Eğitim değerlendirme testi başlatılıyor...", isUser: false, session: _activeSession);
+
+        var result = await Task.Run(() => _engine.RunEvaluation());
+        _lastEvaluationResult = result;
+
+        string report = result.ToReportString();
+        AddMessage(report, isUser: false, session: _activeSession);
+    }
+
+    private void ConsistencyReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastEvaluationResult == null)
+        {
+            MessageBox.Show(
+                "Henüz bir eğitim testi çalıştırılmadı.\n\n" +
+                "Önce \"🧪 Eğitim Testi\" butonuna tıklayın.",
+                "Tutarlılık Raporu", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        string report = _lastEvaluationResult.ToReportString();
+        MessageBox.Show(report, $"📊 Tutarlılık Raporu — Not: {_lastEvaluationResult.OverallGrade}", 
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private async void Benchmark_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine == null) return;
+
+        AddMessage("⚡ Benchmark testi başlatılıyor...", isUser: false, session: _activeSession);
+
+        var result = await Task.Run(() => _engine.RunBenchmark());
+
+        string report = result.ToReportString();
+        AddMessage(report, isUser: false, session: _activeSession);
+    }
+
+    private void KnowledgeBase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine == null) return;
+
+        string stats = _engine.Knowledge.GetStats();
+        MessageBox.Show(stats, "📚 Bilgi Tabanı İstatistikleri", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void ExportChat_Click(object sender, RoutedEventArgs e)
+    {
+        if (_activeSession == null || _activeSession.Messages.Count == 0)
+        {
+            MessageBox.Show("Dışa aktarılacak sohbet yok.", "Dışa Aktarma", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            string path = _sessionManager.ExportToFile(_activeSession, "md");
+            MessageBox.Show($"Sohbet başarıyla dışa aktarıldı:\n{path}", "📤 Dışa Aktarma", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Dışa aktarma hatası: {ex.Message}", "Hata", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    // --- Model Selector ---
+
+    private void ModelSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_engine == null) return;
+        if (ModelSelector.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+        {
+            var persona = tag switch
+            {
+                "Standard" => AIPersona.Standard,
+                "Creative" => AIPersona.Creative,
+                "Coder" => AIPersona.Coder,
+                "Roleplay" => AIPersona.Roleplay,
+                _ => AIPersona.Standard
+            };
+
+            _engine.SetActivePersona(persona);
+            UpdateProviderBadge();
+        }
+    }
+
+    // --- UI Helpers ---
+
+    private void UpdateProviderBadge()
+    {
+        if (_engine == null) return;
+        ProviderBadge.Text = _engine.Config.ActivePersona switch
+        {
+            AIPersona.Standard => "🤖 Standart",
+            AIPersona.Creative => "🎭 Yaratıcı",
+            AIPersona.Coder => "💻 Kodlayıcı",
+            AIPersona.Roleplay => "🧙‍♂️ Rol Yapma",
+            _ => "🤖 Standart"
+        };
+    }
+
+    private void UpdateTokenCounter()
+    {
+        if (_engine == null) return;
+        TokenCounter.Text = $"🪙 Token: {_engine.Config.SessionTokensUsed:N0}";
     }
 
     // --- Custom Title Bar Controls ---
@@ -319,3 +430,4 @@ public partial class MainWindow : Window
         Application.Current.Shutdown();
     }
 }
+

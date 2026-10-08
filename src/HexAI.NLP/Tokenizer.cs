@@ -15,7 +15,7 @@ public static class Tokenizer
         if (string.IsNullOrWhiteSpace(text)) return new List<string>();
 
         // Küçük harfe çevir
-        text = text.ToLowerInvariant();
+        text = text.ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
         // Noktalama işaretlerini temizle (sadece harf ve rakamlar kalsın)
         text = Regex.Replace(text, @"[^\w\s]", "");
@@ -24,3 +24,4 @@ public static class Tokenizer
         return text.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).ToList();
     }
 }
+

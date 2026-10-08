@@ -197,4 +197,90 @@ public class LargeGPT
 
         return string.Join(" ", generatedWords);
     }
+
+    /// <summary>
+    /// Model ağı, kelime kelime tahmin eder ve stream olarak döndürür (ChatGPT/Claude stili akış).
+    /// </summary>
+    public async IAsyncEnumerable<string> GenerateStreamAsync(string seedText, int generateLength = 20, double temperature = 0.7)
+    {
+        if (_vocabulary.Size <= 4)
+            throw new InvalidOperationException("Model henüz eğitilmedi.");
+
+        _network.ResetState();
+
+        var seedWords = Tokenizer.Tokenize(seedText);
+        if (seedWords.Count == 0)
+        {
+            seedWords.Add(_vocabulary.GetWord(4));
+        }
+
+        var currentWindow = new List<int>();
+        for (int i = Math.Max(0, seedWords.Count - SequenceLength); i < seedWords.Count; i++)
+        {
+            currentWindow.Add(_vocabulary.GetId(seedWords[i]));
+        }
+
+        while (currentWindow.Count < SequenceLength)
+        {
+            currentWindow.Insert(0, _vocabulary.PadId);
+        }
+
+        Random rng = new Random();
+
+        for (int i = 0; i < generateLength; i++)
+        {
+            // UI thread'i kilitlememek için ufak bir bekleme (Task.Yield veya Delay)
+            await System.Threading.Tasks.Task.Yield();
+
+            double[] inputIds = currentWindow.Select(id => (double)id).ToArray();
+            var prediction = _network.Predict(inputIds);
+
+            int nextWordId = 0;
+
+            if (temperature <= 0.01)
+            {
+                double maxVal = prediction[0];
+                for (int k = 1; k < prediction.Length; k++)
+                {
+                    if (prediction[k] > maxVal)
+                    {
+                        maxVal = prediction[k];
+                        nextWordId = k;
+                    }
+                }
+            }
+            else
+            {
+                double[] probs = new double[prediction.Length];
+                double maxLogit = prediction.Skip(1).Max();
+                double sum = 0;
+                for (int k = 1; k < prediction.Length; k++)
+                {
+                    probs[k] = Math.Exp((prediction[k] - maxLogit) / temperature);
+                    sum += probs[k];
+                }
+                
+                double r = rng.NextDouble() * sum;
+                double cumulative = 0;
+                for (int k = 1; k < prediction.Length; k++)
+                {
+                    cumulative += probs[k];
+                    if (r <= cumulative)
+                    {
+                        nextWordId = k;
+                        break;
+                    }
+                }
+                if (nextWordId == 0) nextWordId = 1; 
+            }
+
+            string nextWord = _vocabulary.GetWord(nextWordId);
+            
+            // Üretilen kelimeyi akış olarak dışarı ver
+            yield return nextWord;
+
+            currentWindow.RemoveAt(0);
+            currentWindow.Add(nextWordId);
+        }
+    }
 }

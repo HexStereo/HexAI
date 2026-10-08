@@ -91,15 +91,15 @@ public class IntentClassifier
         },
         [Intent.Help] = new[]
         {
-            "yardım", "help", "nasıl", "ne yapabilirsin", "yeteneklerin", "komutlar",
-            "neler yaparsın", "özellikler", "kullanım"
+            "yardım", "yardim", "help", "nasıl", "nasil", "ne yapabilirsin", "yeteneklerin", "komutlar",
+            "neler yaparsın", "neler yaparsin", "özellikler", "ozellikler", "kullanım", "kullanim"
         },
         [Intent.Chat] = new[]
         {
-            "merhaba", "selam", "naber", "nasılsın", "günaydın", "iyi akşamlar",
-            "teşekkür", "sağol", "hoşçakal", "görüşürüz", "bay bay",
-            "anlat", "açıkla", "nedir", "kimdir", "neden", "niçin", "hakkında",
-            "fikrin", "düşüncen", "sence", "bence"
+            "merhaba", "selam", "naber", "nasılsın", "nasilsin", "günaydın", "gunaydin", "iyi akşamlar", "iyi aksamlar",
+            "teşekkür", "tesekkur", "sağol", "sagol", "hoşçakal", "hoscakal", "görüşürüz", "gorusuruz", "bay bay",
+            "anlat", "açıkla", "acikla", "nedir", "kimdir", "neden", "niçin", "nicin", "hakkında", "hakkinda",
+            "fikrin", "düşüncen", "dusuncen", "sence", "bence"
         }
     };
 
@@ -113,7 +113,7 @@ public class IntentClassifier
             return new IntentResult { Intent = Intent.Unknown, Confidence = 0, OriginalInput = input };
         }
 
-        string normalizedInput = input.ToLowerInvariant().Trim();
+        string normalizedInput = input.ToLower(new System.Globalization.CultureInfo("tr-TR")).Trim();
         var result = new IntentResult { OriginalInput = input };
 
         // Öncelik 1: Özel komutları kontrol et (/ ile başlayanlar)
@@ -322,3 +322,4 @@ public class IntentClassifier
         }
     }
 }
+

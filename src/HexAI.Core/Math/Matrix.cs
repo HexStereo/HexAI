@@ -129,6 +129,36 @@ public class Matrix
     }
 
     /// <summary>
+    /// Verilen matrisi, bu matrisin üzerinden in-place (yerinde) çıkarır. 
+    /// Yeni obje oluşturmaz. (Optimizer ve GC bellek optimizasyonu için)
+    /// </summary>
+    public void SubtractInPlace(Matrix other)
+    {
+        if (Rows != other.Rows || Cols != other.Cols)
+            throw new ArgumentException("Boyutlar eşleşmiyor.");
+            
+        int length = Data.Length;
+        int vectorSize = System.Numerics.Vector<double>.Count;
+        int i = 0;
+
+        if (System.Numerics.Vector.IsHardwareAccelerated && length >= vectorSize)
+        {
+            for (; i <= length - vectorSize; i += vectorSize)
+            {
+                var va = new System.Numerics.Vector<double>(Data, i);
+                var vb = new System.Numerics.Vector<double>(other.Data, i);
+                var vr = va - vb;
+                vr.CopyTo(Data, i);
+            }
+        }
+
+        for (; i < length; i++)
+        {
+            Data[i] -= other.Data[i];
+        }
+    }
+
+    /// <summary>
     /// Matris çarpımı (dot product): C = A * B (Paralel + SIMD Hızlandırmalı)
     /// </summary>
     public static Matrix operator *(Matrix a, Matrix b)
@@ -142,7 +172,7 @@ public class Matrix
         int bCols = b.Cols;
         int vectorSize = System.Numerics.Vector<double>.Count;
 
-        Parallel.For(0, a.Rows, i =>
+        for (int i = 0; i < a.Rows; i++)
         {
             int rowOffsetA = i * aCols;
             int rowOffsetResult = i * bCols;
@@ -169,7 +199,7 @@ public class Matrix
                     result.Data[rowOffsetResult + j] += aVal * b.Data[rowOffsetB + j];
                 }
             }
-        });
+        }
         return result;
     }
 
@@ -250,10 +280,10 @@ public class Matrix
     {
         var result = new Matrix(Rows, Cols);
         // Func mapping might not be thread safe depending on lambda captures, ama genelde güvenlidir.
-        Parallel.For(0, Data.Length, i =>
+        for (int i = 0; i < Data.Length; i++)
         {
             result.Data[i] = func(Data[i]);
-        });
+        }
         return result;
     }
 
@@ -269,14 +299,14 @@ public class Matrix
         var result = new Matrix(Cols, Rows);
         int cols = Cols;
         int rows = Rows;
-        Parallel.For(0, rows, i =>
+        for (int i = 0; i < rows; i++)
         {
             int rowOffset = i * cols;
             for (int j = 0; j < cols; j++)
             {
                 result.Data[j * rows + i] = Data[rowOffset + j];
             }
-        });
+        }
         return result;
     }
 

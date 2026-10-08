@@ -41,7 +41,7 @@ public class WordVocabulary
     /// </summary>
     public int AddWord(string word)
     {
-        word = word.ToLowerInvariant();
+        word = word.ToLower(new System.Globalization.CultureInfo("tr-TR"));
         if (_wordToId.TryGetValue(word, out int id))
         {
             return id;
@@ -58,7 +58,7 @@ public class WordVocabulary
     /// </summary>
     public int GetId(string word)
     {
-        word = word.ToLowerInvariant();
+        word = word.ToLower(new System.Globalization.CultureInfo("tr-TR"));
         if (_wordToId.TryGetValue(word, out int id))
         {
             return id;
@@ -164,3 +164,4 @@ public class WordVocabulary
         public List<string> Words { get; set; } = new();
     }
 }
+

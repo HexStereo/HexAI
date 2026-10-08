@@ -88,7 +88,7 @@ public class NeuralIntentClassifier
             return _fallbackClassifier.Classify(input);
         }
 
-        var words = Tokenizer.Tokenize(input.ToLowerInvariant());
+        var words = Tokenizer.Tokenize(input.ToLower(new System.Globalization.CultureInfo("tr-TR")));
         if (words.Count == 0)
         {
             return new IntentClassifier.IntentResult { Intent = IntentClassifier.Intent.Unknown, OriginalInput = input };
@@ -177,6 +177,17 @@ public class NeuralIntentClassifier
             ("bana kendini anlat", IntentClassifier.Intent.Chat)
         };
 
+        var asciiSamples = new List<(string Text, IntentClassifier.Intent Intent)>();
+        foreach (var s in samples)
+        {
+            string asciiText = s.Text.Replace('ı', 'i').Replace('ğ', 'g').Replace('ü', 'u').Replace('ş', 's').Replace('ö', 'o').Replace('ç', 'c');
+            if (asciiText != s.Text)
+            {
+                asciiSamples.Add((asciiText, s.Intent));
+            }
+        }
+        samples.AddRange(asciiSamples);
+
         // Kelimeleri sözlüğe ekle
         foreach (var sample in samples)
         {
@@ -206,3 +217,4 @@ public class NeuralIntentClassifier
         return dataset;
     }
 }
+

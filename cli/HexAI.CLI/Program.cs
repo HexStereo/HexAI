@@ -14,6 +14,9 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        Console.InputEncoding = System.Text.Encoding.UTF8;
+
         // Yapılandırmayı yükle
         var config = AssistantConfig.Load();
 
@@ -31,32 +34,24 @@ class Program
         }
 
         // Asistan motorunu başlat
-        ConsoleUI.PrintLoading("Asistan başlatılıyor...");
+        ConsoleUI.PrintLoading("Asistan ve Yapay Zeka Motoru başlatılıyor...");
         var engine = new AssistantEngine(config);
 
-        // Varsayılan corpus varsa ve model eğitilmemişse, sessizce eğit
-        string corpusPath = Path.Combine(config.GetCorpusPath(), "default_turkish.txt");
-        if (File.Exists(corpusPath) && !engine.IsModelReady)
+        // Araştırma / araç durum güncellemelerini ekrana yaz
+        engine.OnStatus += status =>
         {
-            ConsoleUI.ClearLoading();
-            ConsoleUI.PrintInfo("Varsayılan bilgi kütüphanesi yükleniyor...");
-            try
-            {
-                engine.TrainFromFile(corpusPath, config.DefaultEpochs, silent: true);
-                ConsoleUI.PrintSuccess("Bilgi kütüphanesi yüklendi!");
-            }
-            catch (Exception ex)
-            {
-                ConsoleUI.PrintError($"Bilgi kütüphanesi yüklenemedi: {ex.Message}");
-            }
-        }
-        else
-        {
-            ConsoleUI.ClearLoading();
-        }
+            Console.ForegroundColor = ConsoleColor.DarkCyan;
+            Console.WriteLine($"  {status}");
+            Console.ResetColor();
+        };
 
-        // Durum bilgisi
-        ConsoleUI.PrintStatus(engine.IsModelReady, config.LastModelName);
+        // Motoru başlat (Öz Transformer, NLU, Bilgi Tabanı ve Araştırma Motoru)
+        engine.Initialize();
+        ConsoleUI.ClearLoading();
+
+        // Yerel model durumu
+        string modelName = config.LastModelName ?? "LargeGPT (Öz Transformer)";
+        ConsoleUI.PrintStatus(engine.IsModelReady, modelName);
 
         // === ANA SOHBET DÖNGÜSÜ (REPL) ===
         while (true)
@@ -101,7 +96,7 @@ class Program
             if (string.IsNullOrWhiteSpace(input))
                 continue;
 
-            string trimmed = input.Trim().ToLowerInvariant();
+            string trimmed = input.Trim().ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
             // Ses modunu aç/kapat
             if (trimmed == "/voice")
@@ -131,24 +126,36 @@ class Program
             {
                 // Mevcut konuşmayı durdur
                 voiceManager.StopSpeaking();
-                // Mesajı asistan motoruna gönder
-                string response = await engine.ProcessMessageAsync(input.Trim());
+
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write("  🤖 ");
+
+                var responseBuffer = new System.Text.StringBuilder();
+
+                await foreach (var token in engine.ProcessMessageStreamAsync(input.Trim()))
+                {
+                    responseBuffer.Append(token);
+                    Console.Write(token);
+                }
+
+                Console.ResetColor();
+                Console.WriteLine();
+                Console.WriteLine();
+
+                string fullResponse = responseBuffer.ToString().Trim();
 
                 // "exit" özel sinyali
-                if (response == "exit")
+                if (fullResponse == "exit")
                 {
-                    ConsoleUI.PrintResponse("Hoşça kal! 👋 Tekrar görüşmek üzere!",
-                        config.TypewriterEffect, config.TypewriterDelayMs);
+                    ConsoleUI.PrintResponse("Hoşça kal! 👋 Tekrar görüşmek üzere!", false, 0);
                     if (config.VoiceOutputEnabled) voiceManager.Speak("Hoşça kal, tekrar görüşmek üzere!");
                     break;
                 }
 
-                // Yanıtı göster ve oku
-                ConsoleUI.PrintResponse(response, config.TypewriterEffect, config.TypewriterDelayMs);
-                
-                if (config.VoiceOutputEnabled)
+                if (config.VoiceOutputEnabled && !string.IsNullOrWhiteSpace(fullResponse))
                 {
-                    voiceManager.Speak(response);
+                    voiceManager.Speak(fullResponse);
                 }
             }
             catch (Exception ex)
@@ -158,3 +165,4 @@ class Program
         }
     }
 }
+

@@ -11,7 +11,7 @@ public static class ConsoleUI
     /// </summary>
     public static void PrintBanner()
     {
-        Console.Clear();
+        try { Console.Clear(); } catch { }
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
         Console.ForegroundColor = ConsoleColor.Cyan;
@@ -143,7 +143,15 @@ public static class ConsoleUI
     /// </summary>
     public static void ClearLoading()
     {
-        Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
+        try
+        {
+            int width = Math.Max(20, Console.WindowWidth - 1);
+            Console.Write("\r" + new string(' ', width) + "\r");
+        }
+        catch
+        {
+            Console.WriteLine();
+        }
     }
 
     /// <summary>

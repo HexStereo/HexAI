@@ -65,7 +65,7 @@ public class CorpusLoader
     public static CorpusInfo GetInfo(string corpus)
     {
         var words = corpus.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-        var uniqueWords = new HashSet<string>(words.Select(w => w.ToLowerInvariant()));
+        var uniqueWords = new HashSet<string>(words.Select(w => w.ToLower(new System.Globalization.CultureInfo("tr-TR"))));
         var sentences = corpus.Split(new[] { '.', '!', '?', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
         return new CorpusInfo
@@ -171,3 +171,4 @@ public class CorpusInfo
         $"  Benzersiz : {UniqueWords:N0}\n" +
         $"  Cümle     : {TotalSentences:N0}";
 }
+

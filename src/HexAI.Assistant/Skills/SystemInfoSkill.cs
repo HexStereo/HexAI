@@ -16,7 +16,7 @@ public class SystemInfoSkill : ISkill
 
     public async Task<SkillResult> ExecuteAsync(string userInput, Dictionary<string, string> parameters)
     {
-        string lower = userInput.ToLowerInvariant();
+        string lower = userInput.ToLower(new System.Globalization.CultureInfo("tr-TR"));
 
         // Hangi bilgi isteniyor?
         if (lower.Contains("saat") || lower.Contains("zaman"))
@@ -220,3 +220,4 @@ public class SystemInfoSkill : ISkill
         return sb.ToString();
     }
 }
+

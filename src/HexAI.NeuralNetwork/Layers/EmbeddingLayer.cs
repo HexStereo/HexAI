@@ -83,9 +83,10 @@ public class EmbeddingLayer : ILayer
         }
 
         // Ağırlıkları güncelle
-        _embeddings = _embeddings - optimizer.ComputeUpdate(gradEmbeddings, _embeddings);
+        _embeddings.SubtractInPlace(optimizer.ComputeUpdate(gradEmbeddings, _embeddings));
 
         // Girişe iletilecek hata sıfırdır çünkü giriş sayısal token ID'leridir
         return new Matrix(SequenceLength, 1);
     }
 }
+

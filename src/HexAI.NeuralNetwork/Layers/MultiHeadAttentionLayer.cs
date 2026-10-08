@@ -210,10 +210,10 @@ public class MultiHeadAttentionLayer : ILayer
         Matrix gradWv = _InputReshaped.Transpose() * dV;
 
         // Weights updates
-        _Wq = _Wq - optimizer.ComputeUpdate(gradWq, _Wq);
-        _Wk = _Wk - optimizer.ComputeUpdate(gradWk, _Wk);
-        _Wv = _Wv - optimizer.ComputeUpdate(gradWv, _Wv);
-        _Wo = _Wo - optimizer.ComputeUpdate(gradWo, _Wo);
+        _Wq.SubtractInPlace(optimizer.ComputeUpdate(gradWq, _Wq));
+        _Wk.SubtractInPlace(optimizer.ComputeUpdate(gradWk, _Wk));
+        _Wv.SubtractInPlace(optimizer.ComputeUpdate(gradWv, _Wv));
+        _Wo.SubtractInPlace(optimizer.ComputeUpdate(gradWo, _Wo));
 
         // Gradient back to input
         Matrix dInput = (dQ * _Wq.Transpose()) + (dK * _Wk.Transpose()) + (dV * _Wv.Transpose());
@@ -227,3 +227,4 @@ public class MultiHeadAttentionLayer : ILayer
         return flattenedError;
     }
 }
+

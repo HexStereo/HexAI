@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\src\HexAI.Core\HexAI.Core.csproj" />
     <ProjectReference Include="..\..\src\HexAI.NeuralNetwork\HexAI.NeuralNetwork.csproj" />
     <ProjectReference Include="..\..\src\HexAI.NLP\HexAI.NLP.csproj" />
+    <ProjectReference Include="..\..\src\HexAI.Assistant\HexAI.Assistant.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

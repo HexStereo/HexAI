@@ -10,7 +10,7 @@
         <WindowChrome CaptionHeight="32" ResizeBorderThickness="6" CornerRadius="12" GlassFrameThickness="0"/>
     </WindowChrome.WindowChrome>
     
-    <Border CornerRadius="12" Background="{StaticResource BgDark}" BorderBrush="#374151" BorderThickness="1" ClipToBounds="True">
+<Border CornerRadius="12" Background="{StaticResource BgDark}" BorderBrush="#374151" BorderThickness="1" ClipToBounds="True">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="260" /> <!-- Sidebar -->
@@ -22,20 +22,37 @@
                 <Grid Margin="15">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/> <!-- Title / Window Controls -->
+                        <RowDefinition Height="Auto"/> <!-- Model Selector -->
                         <RowDefinition Height="Auto"/> <!-- New Chat -->
                         <RowDefinition Height="*"/>    <!-- History -->
+                        <RowDefinition Height="Auto"/> <!-- Evaluation Buttons -->
                         <RowDefinition Height="Auto"/> <!-- User Settings -->
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Margin="0,0,0,20">
+                    <StackPanel Grid.Row="0" Margin="0,0,0,15">
                         <TextBlock Text="HexAI Workspace" Foreground="{StaticResource TextLight}" FontSize="16" FontWeight="Bold" />
-                        <TextBlock Text="v1.0 (LargeGPT)" Foreground="{StaticResource TextDark}" FontSize="11" Margin="0,2,0,0" />
+                        <TextBlock Text="v2.0 (LargeGPT + LLM)" Foreground="{StaticResource TextDark}" FontSize="11" Margin="0,2,0,0" />
                     </StackPanel>
 
-                    <Button Grid.Row="1" Content="+ Yeni Sohbet" Style="{StaticResource SidebarButton}" FontSize="14" Margin="0,0,0,20" Foreground="{StaticResource TextLight}" BorderBrush="{StaticResource BgHover}" BorderThickness="1" Click="NewChatButton_Click" />
+                    <!-- Model Selector -->
+                    <Border Grid.Row="1" Background="{StaticResource BgLighter}" CornerRadius="8" Padding="8,6" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="🌐 Aktif Model" Foreground="{StaticResource TextDark}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,5" />
+                            <ComboBox x:Name="ModelSelector" Background="{StaticResource BgHover}" Foreground="{StaticResource TextLight}" 
+                                      BorderThickness="0" FontSize="12" Padding="6,4"
+                                      SelectionChanged="ModelSelector_SelectionChanged">
+                                <ComboBoxItem Content="🤖 HexAI Standart" Tag="Standard" IsSelected="True"/>
+                                <ComboBoxItem Content="🎭 Yaratıcı Mod" Tag="Creative"/>
+                                <ComboBoxItem Content="💻 Kodlayıcı" Tag="Coder"/>
+                                <ComboBoxItem Content="🧙‍♂️ Rol Yapma" Tag="Roleplay"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Grid.Row="2" Content="+ Yeni Sohbet" Style="{StaticResource SidebarButton}" FontSize="14" Margin="0,0,0,15" Foreground="{StaticResource TextLight}" BorderBrush="{StaticResource BgHover}" BorderThickness="1" Click="NewChatButton_Click" />
 
                     <!-- History List -->
-                    <StackPanel Grid.Row="2">
+                    <StackPanel Grid.Row="3">
                         <TextBlock Text="Geçmiş Sohbetler" Foreground="{StaticResource TextDark}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,10" />
                         <ListBox x:Name="SessionList" Background="Transparent" BorderThickness="0" 
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -73,9 +90,23 @@
                         </ListBox>
                     </StackPanel>
 
+                    <!-- Evaluation Buttons (Ayarlar üstünde) -->
+                    <StackPanel Grid.Row="4" Margin="0,10,0,5">
+                        <TextBlock Text="🧪 Değerlendirme Araçları" Foreground="{StaticResource TextDark}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <Button Content="🧪  Eğitim Testi" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="EvaluationTest_Click" ToolTip="Eğitilmiş modelin öğrenip öğrenmediğini test eder" />
+                        <Button Content="📊  Tutarlılık Raporu" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="ConsistencyReport_Click" ToolTip="Son test sonuçlarının detaylı raporunu gösterir" />
+                        <Button Content="⚡  Benchmark" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="Benchmark_Click" ToolTip="Standart sorularla modeli test eder" />
+                        <Button Content="📚  Bilgi Tabanı" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="KnowledgeBase_Click" ToolTip="Doğrulanmış bilgi tabanı istatistikleri" />
+                        <Button Content="📤  Sohbeti Dışa Aktar" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="ExportChat_Click" ToolTip="Aktif sohbeti Markdown olarak masaüstüne kaydeder" />
+                    </StackPanel>
+
                     <!-- Profile / Settings -->
-                    <Border Grid.Row="3" BorderBrush="{StaticResource BgHover}" BorderThickness="0,1,0,0" Padding="0,15,0,0">
-                        <Button Content="⚙️  Ayarlar ve Profil" Style="{StaticResource SidebarButton}" Click="SettingsButton_Click" />
+                    <Border Grid.Row="5" BorderBrush="{StaticResource BgHover}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                        <StackPanel>
+                            <Button Content="⚙️  Ayarlar ve Profil" Style="{StaticResource SidebarButton}" Click="SettingsButton_Click" />
+                            <!-- Token Counter -->
+                            <TextBlock x:Name="TokenCounter" Text="🪙 Token: 0" Foreground="{StaticResource TextDark}" FontSize="10" Margin="10,5,0,0" />
+                        </StackPanel>
                     </Border>
                 </Grid>
             </Border>
@@ -90,6 +121,9 @@
 
                 <!-- Custom Title Bar (Right Side) -->
                 <Grid Grid.Row="0" Background="Transparent" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                    <!-- Provider Badge (sol taraf) -->
+                    <TextBlock x:Name="ProviderBadge" Text="🤖 Otomatik" Foreground="{StaticResource TextDark}" FontSize="11" 
+                               VerticalAlignment="Center" Margin="15,0,0,0" HorizontalAlignment="Left" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" WindowChrome.IsHitTestVisibleInChrome="True">
                         <Button Content="—" Width="40" Background="Transparent" Foreground="{StaticResource TextDark}" BorderThickness="0" FontSize="14" Click="MinimizeButton_Click"/>
                         <Button Content="✕" Width="40" Background="Transparent" Foreground="{StaticResource TextDark}" BorderThickness="0" FontSize="14" Click="CloseButton_Click"/>

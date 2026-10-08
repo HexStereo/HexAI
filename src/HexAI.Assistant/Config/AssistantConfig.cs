@@ -1,6 +1,22 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HexAI.Assistant.Config;
+
+/// <summary>
+/// Aktif Persona.
+/// </summary>
+public enum AIPersona
+{
+    /// <summary>Standart asistan (varsayılan).</summary>
+    Standard,
+    /// <summary>Yaratıcı ve eğlenceli persona.</summary>
+    Creative,
+    /// <summary>Kodlama uzmanı persona.</summary>
+    Coder,
+    /// <summary>Sert, resmi veya rol yapma personasi.</summary>
+    Roleplay
+}
 
 /// <summary>
 /// Asistan yapılandırma ayarları.
@@ -52,6 +68,47 @@ public class AssistantConfig
 
     /// <summary>Otomatik kaydetme açık mı?</summary>
     public bool AutoSave { get; set; } = true;
+
+    // ─── Sistem Prompt & Persona Seçimi ───
+
+    /// <summary>Özelleştirilebilir sistem prompt'u.</summary>
+    public string SystemPrompt { get; set; } = "Sen HexAI adında, Türkçe konuşan, yardımsever bir yapay zeka asistanısın. Kısa, öz ve doğru yanıtlar ver.";
+
+    // ─── Araştırma & Web Ayarları ───
+
+    /// <summary>Araştırmada okunacak maksimum web sayfası.</summary>
+    public int ResearchMaxSources { get; set; } = 5;
+
+    /// <summary>Her kaynaktan alınacak maksimum karakter.</summary>
+    public int ResearchCharsPerSource { get; set; } = 3500;
+
+    /// <summary>Güncel bilgi gerektiren sorularda otomatik web araştırması yap.</summary>
+    public bool AutoWebResearch { get; set; } = true;
+
+    /// <summary>Aktif Asistan Persona Modu.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public AIPersona ActivePersona { get; set; } = AIPersona.Standard;
+
+    /// <summary>Token kullanım takibi açık mı?</summary>
+    public bool TrackTokenUsage { get; set; } = true;
+
+    /// <summary>Toplam kullanılan token sayısı (kalıcı).</summary>
+    public long TotalTokensUsed { get; set; } = 0;
+
+    /// <summary>Oturumdaki token kullanımı.</summary>
+    [JsonIgnore]
+    public long SessionTokensUsed { get; set; } = 0;
+
+    // ─── Sistem Ayarları ───
+
+    /// <summary>Model doğrulama sistemi açık mı?</summary>
+    public bool EnableVerification { get; set; } = true;
+
+    /// <summary>Doğrulama minimum onay eşiği (0-10).</summary>
+    public double VerificationThreshold { get; set; } = 7.0;
+
+    /// <summary>Bilgi tabanı dizini.</summary>
+    public string KnowledgeBasePath { get; set; } = "data/knowledge";
 
     /// <summary>Yazma animasyonu açık mı?</summary>
     public bool TypewriterEffect { get; set; } = true;
@@ -111,6 +168,8 @@ public class AssistantConfig
         Directory.CreateDirectory(Path.Combine(baseDir, ModelsDirectory));
         Directory.CreateDirectory(Path.Combine(baseDir, CorpusDirectory));
         Directory.CreateDirectory(Path.Combine(baseDir, LogsDirectory));
+        Directory.CreateDirectory(Path.Combine(baseDir, KnowledgeBasePath));
+        Directory.CreateDirectory(GetDataPath());
     }
 
     /// <summary>Tam model dizin yolunu döndürür.</summary>
@@ -124,4 +183,12 @@ public class AssistantConfig
     /// <summary>Tam log dizin yolunu döndürür.</summary>
     public string GetLogsPath() =>
         Path.Combine(AppDomain.CurrentDomain.BaseDirectory, LogsDirectory);
+
+    /// <summary>Veri kök dizini (vektör deposu vb. için).</summary>
+    public string GetDataPath() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "HexAI", "data");
+
+    /// <summary>Tam bilgi tabanı dizin yolunu döndürür.</summary>
+    public string GetKnowledgeBasePath() =>
+        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, KnowledgeBasePath);
 }
