@@ -59,7 +59,7 @@ public class TransformerBlock : ILayer
         _norm1 = new LayerNormLayer(sequenceLength, embedSize);
 
         // Multi-Head Self-Attention
-        _attention = new MultiHeadAttentionLayer(embedSize, numHeads, sequenceLength, rng);
+        _attention = new MultiHeadAttentionLayer(sequenceLength, embedSize, numHeads, rng);
 
         // Pre-LayerNorm 2 (FFN öncesi)
         _norm2 = new LayerNormLayer(sequenceLength, embedSize);

@@ -92,7 +92,8 @@
 
                     <!-- Evaluation Buttons (Ayarlar üstünde) -->
                     <StackPanel Grid.Row="4" Margin="0,10,0,5">
-                        <TextBlock Text="🧪 Değerlendirme Araçları" Foreground="{StaticResource TextDark}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <TextBlock Text="🧪 Değerlendirme &amp; Oyunlar" Foreground="{StaticResource TextDark}" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,6" />
+                        <Button Content="🎮  Oyunlar &amp; Kararlılık Testi" Style="{StaticResource SidebarButton}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource AccentColor}" Margin="0,1" Click="MiniGames_Click" ToolTip="Yapay zekanın rastgele labirent ve mantık oyunlarındaki zaman kararlılığı, doğruluk ve hata oranını ölçer" />
                         <Button Content="🧪  Eğitim Testi" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="EvaluationTest_Click" ToolTip="Eğitilmiş modelin öğrenip öğrenmediğini test eder" />
                         <Button Content="📊  Tutarlılık Raporu" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="ConsistencyReport_Click" ToolTip="Son test sonuçlarının detaylı raporunu gösterir" />
                         <Button Content="⚡  Benchmark" Style="{StaticResource SidebarButton}" FontSize="12" Margin="0,1" Click="Benchmark_Click" ToolTip="Standart sorularla modeli test eder" />
@@ -178,10 +179,9 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             
-                            <!-- Voice Button -->
-                            <Button x:Name="VoiceButton" Grid.Column="0" Content="🎙️" Width="40" Height="40" 
-                                    Background="Transparent" Foreground="{StaticResource TextDark}" 
-                                    BorderThickness="0" FontSize="18" Click="VoiceButton_Click" IsEnabled="False" Cursor="Hand" />
+                            <!-- Voice Button (Kaldırıldı) -->
+                            <Button x:Name="VoiceButton" Grid.Column="0" Content="🎙️" Width="0" Height="0" 
+                                    Visibility="Collapsed" IsEnabled="False" />
                             
                             <!-- Text Input -->
                             <TextBox x:Name="InputBox" Grid.Column="1" Padding="15,10" 

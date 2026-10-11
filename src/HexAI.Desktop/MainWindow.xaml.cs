@@ -16,13 +16,9 @@ namespace HexAI.Desktop;
 public partial class MainWindow : Window
 {
     private AssistantEngine _engine = null!;
-    private VoiceManager _voiceManager = null!;
     private ChatSessionManager _sessionManager = null!;
-    
     public ObservableCollection<ChatSession> Sessions { get; set; } = new();
-
     private ChatSession _activeSession = null!;
-    private bool _isVoiceListening = false;
 
     // Son evaluation sonucu (tutarlılık raporu için saklanır)
     private EvaluationResult? _lastEvaluationResult;
@@ -38,11 +34,6 @@ public partial class MainWindow : Window
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         LoadPastSessions();
-        _voiceManager = new VoiceManager();
-        if (_voiceManager.IsVoiceSupported)
-        {
-            VoiceButton.IsEnabled = true;
-        }
 
         // Motoru arka planda başlat
         await Task.Run(() =>
@@ -120,10 +111,6 @@ public partial class MainWindow : Window
         msg.Text = msg.Text.TrimEnd();
         _sessionManager.SaveSession(currentSession);
 
-        if (_engine.Config.VoiceOutputEnabled)
-        {
-            _voiceManager.SpeakAsync(msg.Text);
-        }
 
         // Token sayacını güncelle
         UpdateTokenCounter();
@@ -133,39 +120,9 @@ public partial class MainWindow : Window
         InputBox.Focus();
     }
 
-    private async void VoiceButton_Click(object sender, RoutedEventArgs e)
+    private void VoiceButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!_voiceManager.IsVoiceSupported) return;
-
-        if (_isVoiceListening)
-        {
-            _voiceManager.StopListening();
-            _isVoiceListening = false;
-            VoiceButton.Foreground = Brushes.White;
-            VoiceButton.Background = new SolidColorBrush(Color.FromRgb(29, 22, 58)); // #1d163a
-            return;
-        }
-
-        _isVoiceListening = true;
-        VoiceButton.Foreground = Brushes.White;
-        VoiceButton.Background = new SolidColorBrush(Color.FromRgb(220, 20, 60)); // Crimson Red for recording
-        InputBox.Text = "Dinleniyor...";
-
-        string result = await _voiceManager.ListenAsync();
-        
-        _isVoiceListening = false;
-        VoiceButton.Foreground = Brushes.White;
-        VoiceButton.Background = new SolidColorBrush(Color.FromRgb(29, 22, 58));
-        
-        if (!string.IsNullOrWhiteSpace(result))
-        {
-            InputBox.Text = result;
-            await ProcessInput();
-        }
-        else
-        {
-            InputBox.Clear();
-        }
+        // Ses özelliği devre dışı bırakıldı
     }
 
     private void AddMessage(string text, bool isUser, ChatSession session)
@@ -189,7 +146,6 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _voiceManager?.Dispose();
         base.OnClosed(e);
     }
 
@@ -294,7 +250,18 @@ public partial class MainWindow : Window
         }
     }
 
-    // --- Evaluation Buttons ---
+    // --- Evaluation & Games Buttons ---
+
+    private void MiniGames_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine == null) return;
+
+        var gamesWindow = new MiniGamesWindow(_engine)
+        {
+            Owner = this
+        };
+        gamesWindow.ShowDialog();
+    }
 
     private async void EvaluationTest_Click(object sender, RoutedEventArgs e)
     {

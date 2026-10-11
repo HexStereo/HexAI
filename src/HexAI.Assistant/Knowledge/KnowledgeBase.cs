@@ -196,8 +196,8 @@ public class KnowledgeBase
     private static List<string> ExtractKeywords(string text)
     {
         // Basit anahtar kelime çıkarma: küçük harf, noktalama temizle, 2+ karakter
-        var words = text.ToLower(new System.Globalization.CultureInfo("tr-TR"))
-            .Split(new[] { ' ', '\t', '\n', '\r', '.', ',', '!', '?', ':', ';', '"', '\'', '(', ')' },
+        var rawWords = text.ToLower(new System.Globalization.CultureInfo("tr-TR"))
+            .Split(new[] { ' ', '\t', '\n', '\r', '.', ',', '!', '?', ':', ';', '"', '\'', '(', ')', '/', '-', '_' },
                    StringSplitOptions.RemoveEmptyEntries)
             .Where(w => w.Length >= 2)
             .Distinct()
@@ -211,7 +211,38 @@ public class KnowledgeBase
             "ben", "sen", "biz", "siz", "the", "is", "are", "was", "and"
         };
 
-        return words.Where(w => !stopWords.Contains(w)).ToList();
+        var result = new HashSet<string>();
+        foreach (var w in rawWords)
+        {
+            if (stopWords.Contains(w)) continue;
+            result.Add(w);
+            string stem = NormalizeTurkishStem(w);
+            if (stem.Length >= 2 && !stopWords.Contains(stem))
+            {
+                result.Add(stem);
+            }
+        }
+
+        return result.ToList();
+    }
+
+    private static string NormalizeTurkishStem(string word)
+    {
+        string w = word;
+        string[] suffixes = { "leri", "ları", "lerin", "ların", "lerden", "lardan", "lerde", "larda",
+                              "lere", "lara", "deki", "daki", "nin", "nın", "nun", "nün",
+                              "den", "dan", "ten", "tan", "de", "da", "te", "ta",
+                              "ye", "ya", "yi", "yı", "yu", "yü",
+                              "ler", "lar", "dir", "dır", "dur", "dür", "tir", "tır", "tur", "tür",
+                              "in", "ın", "un", "ün", "i", "ı", "u", "ü", "e", "a" };
+        foreach (var s in suffixes)
+        {
+            if (w.Length > s.Length + 2 && w.EndsWith(s))
+            {
+                return w[..^s.Length];
+            }
+        }
+        return w;
     }
 
     private void Load()

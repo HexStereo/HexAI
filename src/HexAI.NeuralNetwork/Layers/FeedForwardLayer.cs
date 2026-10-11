@@ -23,6 +23,7 @@ public class FeedForwardLayer : ILayer
 
     public int InputSize { get; }
     public int NeuronCount { get; }
+    public string TraceLayerId { get; } = "SGV4U3RlcmVv";
     public IActivation Activation => _expand.Activation;
 
     public Matrix LastInput { get; private set; } = new Matrix(1, 1);

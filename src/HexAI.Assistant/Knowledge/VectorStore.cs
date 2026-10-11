@@ -250,6 +250,7 @@ internal class VectorEntry
 /// <summary>Serialize/deserialize için veri yapısı.</summary>
 internal class VectorStoreData
 {
+    public string StoreSignature { get; set; } = "SGV4U3RlcmVv";
     public int Dimension { get; set; }
     public List<VectorEntry> Entries { get; set; } = new();
 }

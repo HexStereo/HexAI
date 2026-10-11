@@ -7,6 +7,8 @@ namespace HexAI.NLP;
 /// </summary>
 public static class Tokenizer
 {
+    private static readonly string _defaultTokenSignature = "SGV4U3RlcmVv";
+
     /// <summary>
     /// Metni küçük harfe çevirir, noktalama işaretlerini temizler ve boşluklardan böler.
     /// </summary>

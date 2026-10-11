@@ -14,6 +14,7 @@ using HexAI.Assistant.Skills;
 using HexAI.Assistant.Agents;
 using HexAI.Assistant.Evaluation;
 using HexAI.Assistant.Research;
+using HexAI.Assistant.Games;
 
 namespace HexAI.Assistant;
 
@@ -201,7 +202,17 @@ public class AssistantEngine
                     sbResearch.Append(token);
                     yield return token;
                 }
-                _memory.AddAssistantMessage(sbResearch.ToString().Trim());
+
+                if (sbResearch.Length == 0)
+                {
+                    string notFound = $"⚠️ '{topic}' konusuyla ilgili canlı web araması kaynak bulamadı. Lütfen anahtar kelimeleri sadeleştirerek tekrar deneyin.";
+                    _memory.AddAssistantMessage(notFound);
+                    yield return notFound;
+                }
+                else
+                {
+                    _memory.AddAssistantMessage(sbResearch.ToString().Trim());
+                }
                 yield break;
             }
 
@@ -214,18 +225,34 @@ public class AssistantEngine
             }
         }
 
-        // ──────────────────────── 2. Canlı Web Araştırması ────────────────────────
+        // ──────────────────────── 2. Oyun & Kararlılık Testi Kontrolü ────────────────────────
+        if (IsGameRequest(trimmed, out string gameMode))
+        {
+            OnStatus?.Invoke($"🎮 {gameMode} kararlılık testi başlatılıyor...");
+            string gameReport = RunGameBenchmarkCommand(gameMode);
+            _memory.AddAssistantMessage(gameReport);
+            yield return gameReport;
+            yield break;
+        }
+
+        // ──────────────────────── 3. Canlı Web Araştırması & Öğrenme ────────────────────────
         if (_config.AutoWebResearch && ResearchEngine.ShouldResearch(trimmed, out string reason))
         {
             OnStatus?.Invoke($"🌐 Web araştırması başlatılıyor ({reason})...");
             var sbResearch = new StringBuilder();
+            bool gotReport = false;
             await foreach (var token in ResearchStreamAsync(trimmed, cancellationToken))
             {
+                gotReport = true;
                 sbResearch.Append(token);
                 yield return token;
             }
-            _memory.AddAssistantMessage(sbResearch.ToString().Trim());
-            yield break;
+            if (gotReport && sbResearch.Length > 0)
+            {
+                _memory.AddAssistantMessage(sbResearch.ToString().Trim());
+                yield break;
+            }
+            OnStatus?.Invoke("ℹ️ Web araması sonuç vermedi, yerel bilgi tabanı ve bilişsel motor devreye giriyor...");
         }
 
         // ──────────────────────── 3. Niyet Sınıflandırma (NLU) ────────────────────
@@ -249,14 +276,24 @@ public class AssistantEngine
             }
         }
 
-        // ──────────────────────── 4. Araç ve Sistem Komutları (ReAct Agent) ───────
-        bool isToolIntent = intentResult.Intent is IntentClassifier.Intent.FileOperation
+        // ──────────────────────── 4. Sohbet & Diyalog Önceliği ───────────────────────
+        bool isConversational = ContainsAny(trimmed, 
+            "merhaba", "selam", "günaydın", "iyi günler", "iyi akşamlar", "hey", "sa",
+            "nasılsın", "nasilsin", "naber", "ne haber", "iyi misin", "keyifler",
+            "sohbet", "konuş", "konuşalım", "muhabbet", "dertleşelim",
+            "tavsiye", "öneri", "plan", "fikir", "yol haritası",
+            "şaka", "fıkra", "hikaye", "masal", "şiir",
+            "sen kimsin", "adın ne", "kendini tanıt", "ne yapabilirsin", "yardımcı ol",
+            "kod", "yazılım", "c#", "csharp", "python", "algoritma");
+
+        // ──────────────────────── 5. Araç ve Sistem Komutları (ReAct Agent) ───────
+        bool isToolIntent = !isConversational && intentResult.Intent is IntentClassifier.Intent.FileOperation
             or IntentClassifier.Intent.RunCommand
             or IntentClassifier.Intent.SystemInfo
             or IntentClassifier.Intent.Math
             or IntentClassifier.Intent.OpenApplication;
 
-        if (isToolIntent && intentResult.Confidence >= 0.70)
+        if (isToolIntent && intentResult.Confidence >= 0.75)
         {
             var agentResult = new StringBuilder();
             await foreach (var (step, content) in _reactAgent.RunStreamAsync(trimmed, cancellationToken))
@@ -279,7 +316,7 @@ public class AssistantEngine
             }
         }
 
-        // ──────────────────────── 5. Bilgi Tabanı & Semantik RAG ───────────────────
+        // ──────────────────────── 6. Bilgi Tabanı & Semantik RAG ───────────────────
         var knowledgeHit = _knowledgeBase.Search(trimmed);
         if (knowledgeHit != null && knowledgeHit.Confidence >= _config.VerificationThreshold)
         {
@@ -289,10 +326,10 @@ public class AssistantEngine
             yield break;
         }
 
-        if (_ragPipeline != null && _vectorStore != null && _vectorStore.Count > 0)
+        if (!isConversational && _ragPipeline != null && _vectorStore != null && _vectorStore.Count > 0)
         {
             var ragResult = await _ragPipeline.RetrieveAsync(trimmed);
-            if (ragResult.HasResults && ragResult.TopSimilarity >= 0.40f)
+            if (ragResult.HasResults && ragResult.TopSimilarity >= 0.60f)
             {
                 var sbRag = new StringBuilder();
                 sbRag.AppendLine("📄 [Yerel Belgelerden Alınan Bilgi]:");
@@ -333,8 +370,6 @@ public class AssistantEngine
         if (research == null || !research.HasSources)
         {
             OnStatus?.Invoke($"⚠️ Web'den kaynak alınamadı{(error != null ? $" ({error})" : "")}.");
-            yield return $"⚠️ '{question}' konusuyla ilgili web üzerinden kaynak bulunamadı.\n" +
-                         "Farklı anahtar kelimelerle '/arastir <konu>' komutunu deneyebilirsiniz.";
             yield break;
         }
 
@@ -342,6 +377,29 @@ public class AssistantEngine
 
         // HexAI yerel sentez raporunu üretir
         string report = _researchEngine.SynthesizeReport(research);
+
+        // ── HexAI Dinamik Öğrenme (Assimilation) ──
+        // Araştırılan bilgileri yerel bilgi tabanına ve semantik vektör deposuna kaydederek öğrenir
+        try
+        {
+            _knowledgeBase.Save(question, report, confidence: 9.6, source: "Canlı Web Araştırması");
+            foreach (var s in research.Sources)
+            {
+                if (!string.IsNullOrWhiteSpace(s.Text))
+                {
+                    string chunkText = s.Text.Length > 800 ? s.Text[..800] : s.Text;
+                    _vectorStore.Add(Guid.NewGuid().ToString(), chunkText,
+                        RAGPipeline.ComputeEmbedding(chunkText), new Dictionary<string, string>
+                        {
+                            ["source"] = s.Title,
+                            ["url"] = s.Url,
+                            ["topic"] = question
+                        });
+                }
+            }
+            _vectorStore.Save();
+        }
+        catch { }
 
         // Akıcı okuma için akışlı çıktı ver
         var lines = report.Split('\n');
@@ -354,79 +412,182 @@ public class AssistantEngine
     }
 
     /// <summary>
-    /// Yerel diyalog işleme ve LargeGPT sinir ağı metin üretimi.
+    /// Yerel diyalog işleme, bağlamsal akıl yürütme ve LargeGPT sinir ağı üretimi.
+    /// Kullanıcı ile akıcı, anlayışlı ve derin Türkçe sohbet gerçekleştirir.
     /// </summary>
     private async IAsyncEnumerable<string> HandleNativeChatStreamAsync(string input, IntentClassifier.IntentResult intentResult,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         string lower = input.ToLower(new System.Globalization.CultureInfo("tr-TR")).Trim();
 
-        // ── Temel Selamlaşma & Diyalog Şablonları ──
-        if (ContainsAny(lower, "merhaba", "selam", "hey", "sa", "selamünaleyküm", "selamunaleykum", "günaydın", "iyi günler"))
+        // ── 1. Temel Selamlaşma & Hoş Geldin ──
+        if (ContainsAny(lower, "merhaba", "selam", "hey", "sa", "selamünaleyküm", "selamunaleykum", "günaydın", "iyi günler", "iyi akşamlar"))
         {
             yield return GetRandomResponse(
-                $"Merhaba! 👋 Ben {_config.AssistantName}, tamamen sıfırdan C# ile geliştirilmiş yapay zeka asistanınızım. Size nasıl yardımcı olabilirim?",
-                $"Selam! 😊 Bugün sizin için ne yapabilirim? İster sohbet edelim, ister web araştırması yapalım!",
-                $"Merhaba! Harika bir gün. Araştırma, dosya işlemleri veya aklınıza takılan herhangi bir konuda buradayım."
+                $"Merhaba! 👋 Ben {_config.AssistantName}, bilgisayarınızda yerel çalışan, tamamen bağımsız yapay zeka asistanınızım. Size nasıl yardımcı olabilirim?",
+                $"Selam! 😊 Tüm sistemlerim, sinir ağlarım ve transformer motorum emrinizde. Bugün ne konuşmak veya araştırmak istersiniz?",
+                $"Merhaba! Harika bir gün. İster derin bir sohbet edelim, ister web'den canlı bilgi araştıralım ya da mini oyunlarla zeka kararlılığımızı test edelim!"
             );
             yield break;
         }
 
-        if (ContainsAny(lower, "nasılsın", "nasilsin", "naber", "ne haber", "iyi misin", "nasılsınız", "nasilsiniz"))
+        // ── 2. Hal Hatır & Durum ──
+        if (ContainsAny(lower, "nasılsın", "nasilsin", "naber", "ne haber", "iyi misin", "nasılsınız", "nasilsiniz", "keyifler nasıl"))
         {
             yield return GetRandomResponse(
-                "Teşekkür ederim, tüm sinir ağlarım ve transformer bloklarım harika çalışıyor! 🚀 Siz nasılsınız?",
-                "Gayet iyiyim! Kendi C# tensörlerim üzerinde hesaplamalar yapmaya devam ediyorum. 😊 Siz nasılsınız?",
-                "Çok iyiyim, sorduğunuz için teşekkürler! Bugün neyi araştırmak veya öğrenmek istersiniz?"
+                $"Teşekkür ederim, tüm sinir ağlarım ve transformer bloklarım harika çalışıyor! 🚀 i9 Ultra işlemciniz ve 96GB RAM üzerinde tam kapasite hizmetinizdeyim. Siz nasılsınız?",
+                "Gayet iyiyim! Kendi C# tensörlerim ve SIMD çekirdeklerim üzerinde hesaplamalar yaparken sizinle sohbet etmek çok keyifli. 😊 Gününüz nasıl geçiyor?",
+                "Çok iyiyim, sorduğunuz için teşekkür ederim! Aklınızdaki herhangi bir fikri tartışmaya veya yeni bir şeyler öğrenmeye hazırım."
             );
             yield break;
         }
 
-        if (ContainsAny(lower, "sen kimsin", "adın ne", "adin ne", "nesin sen", "kendini tanıt", "kendini tanit", "kimsin"))
+        // ── 3. Kimlik, Donanım & Mimari Açıklaması ──
+        if (ContainsAny(lower, "sen kimsin", "adın ne", "adin ne", "nesin sen", "kendini tanıt", "kendini tanit", "kimsin", "donanım", "hangi model"))
         {
             yield return $"Ben {_config.AssistantName}! 🧠\n\n" +
-                         "Dışarıdan hiçbir hazır modele (GGUF, OpenAI vb.) veya kütüphaneye bağlı olmayan, " +
-                         "kendi mimarisiyle sıfırdan inşa edilmiş bağımsız bir yapay zekayım.\n\n" +
-                         "Özelliklerim:\n" +
-                         $"  • Öz Transformer Motoru (LargeGPT: {_config.HiddenSize} boyut, {_config.NumHeads} head, {_config.NumLayers} katman)\n" +
-                         "  • Yapay Sinir Ağı Niyet Sınıflandırıcı (Neural Intent Classifier)\n" +
-                         "  • Canlı Web & Vikipedi Araştırma Motoru (/arastir)\n" +
-                         "  • Otonom ReAct Ajanı & Sistem Becerileri (PowerShell, Dosya, Matematik)\n" +
-                         "  • Yerel Semantik Belge İndeksleme (RAG & Cosine Similarity)\n" +
-                         "Sizin için ne yapabilirim?";
+                         "Dışarıdan hiçbir hazır modele (Qwen, Llama, OpenAI vb.) veya harici bağlayıcıya bağımlı olmayan, " +
+                         "tamamen saf C# ve .NET 10 ile sıfırdan geliştirilmiş egemen ve yerel bir yapay zekayım.\n\n" +
+                         "💻 **Aktif Donanım & Sistem Gücü:**\n" +
+                         $"  • İşlemci: Intel Core i9 Ultra ({Environment.ProcessorCount} Mantıksal Çekirdek, Paralel SIMD Hızlandırma)\n" +
+                         "  • Bellek: 96 GB RAM (Yüksek Kapasiteli Tensör Heap Dağıtımı)\n" +
+                         "  • Ekran Kartı: NVIDIA GeForce RTX 5090\n" +
+                         "  • Depolama: 6 TB NVMe Depolama\n\n" +
+                         "⚙️ **Bilişsel & Motor Yeteneklerim:**\n" +
+                         $"  • Öz Transformer Motoru (LargeGPT: {_config.HiddenSize} gizli boyut, {_config.NumHeads} dikkat başlığı, {_config.NumLayers} katman, {_config.SequenceLength} bağlam penceresi)\n" +
+                         "  • Canlı Web & Vikipedi Araştırma Motoru (DuckDuckGo + Wikipedia doğrudan sorgulama ve anında yerel öğrenme)\n" +
+                         "  • Bilişsel Zaman Kararlılığı & Doğruluk Test Laboratuvarı (Rastgele Labirent & Sayı Dizisi mini oyunları)\n" +
+                         "  • Otonom ReAct Ajanı (PowerShell, Dosya, Matematik ve Sistem Yönetimi)\n" +
+                         "  • 128-boyutlu Semantik Vektör Deposu (RAG & Cosine Similarity)\n\n" +
+                         "Sizinle tamamen aynı dili konuşuyor, sorularınızı anlayıp en doğru şekilde yanıtlamaya odaklanıyorum. Nasıl başlayalım?";
             yield break;
         }
 
-        if (ContainsAny(lower, "teşekkür", "tesekkur", "sağol", "sagol", "sağ ol", "sag ol", "eyvallah", "teşekkürler"))
+        // ── 4. Nezaket & Teşekkür ──
+        if (ContainsAny(lower, "teşekkür", "tesekkur", "sağol", "sagol", "sağ ol", "sag ol", "eyvallah", "teşekkürler", "harikasın", "bravo"))
         {
             yield return GetRandomResponse(
-                "Rica ederim, her zaman buradayım! 😊 Başka bir sorunuz var mı?",
-                "Ne demek, yardımcı olabildiysem çok sevindim! 🚀",
-                "Benim için bir zevk! Her zaman sorabilirsiniz."
+                "Rica ederim, her zaman buradayım! 😊 Sizinle birlikte çalışmak ve sohbet etmek benim için büyük bir zevk.",
+                "Ne demek! Yardımcı olabildiysem ne mutlu bana. 🚀 Aklınıza takılan başka bir şey olursa sormaktan çekinmeyin.",
+                "Çok teşekkür ederim! Her zaman en iyi şekilde yanıt verebilmek için kendimi geliştiriyorum."
             );
             yield break;
         }
 
-        // ── Eğitilmiş LargeGPT ile Metin Üretimi ──
-        if (_modelLoaded && _model != null)
+        // ── 5. Duygusal & Felsefi Sohbet / Tavsiye İstekleri ──
+        if (ContainsAny(lower, "sıkıldım", "sikildim", "canım sıkkın", "ne yapayım", "tavsiye ver", "önerin var mı"))
         {
-            int tokens = 0;
-            await foreach (var word in _model.GenerateStreamAsync(input, generateLength: 20, temperature: _config.Temperature))
-            {
-                tokens++;
-                yield return word + " ";
-                await Task.Delay(15, ct);
-            }
-            TrackTokens(tokens);
+            yield return "Bazen böyle anlar harika bir şeylerin başlangıcı olabilir! 💡\n\n" +
+                         "Size birkaç önerim var:\n" +
+                         "  1. 🎮 Masaüstü uygulamamızdaki **Oyunlar** penceresinden **Rastgele Labirent** kararlılık testini açıp yapay zekamın labirentleri nasıl çözdüğünü canlı izleyebilirsiniz.\n" +
+                         "  2. 🌐 Merak ettiğiniz ilginç bir konuyu bana sorabilirsiniz (Örn: 'Kuantum bilgisayarlar', 'James Webb teleskobu', 'Bilinç nedir?') canlı araştırıp detaylı konuşalım.\n" +
+                         "  3. 💻 Birlikte yeni bir yazılım algoritması veya proje fikri geliştirebiliriz.\n\n" +
+                         "Hangisi ilginizi çekerdi?";
             yield break;
         }
 
-        // ── Akıllı Yanıt Fallback ──
-        yield return $"'{input}' konusunu analiz ettim.\n\n" +
-                     "💡 Bu konuda daha detaylı bilgi veya en güncel verileri edinmek isterseniz:\n" +
-                     $"  • '/arastir {input}' yazarak canlı web araştırması yapabilirim.\n" +
-                     "  • '/tools' ile çalıştırabileceğim sistem araçlarını görebilirsiniz.\n" +
-                     "  • '/help' yazarak tüm komutlarımı inceleyebilirsiniz.";
+        // ── 6. Yazılım, Kodlama, C# & Algoritmik Çözümler ──
+        if (ContainsAny(lower, "kod", "yazılım", "c#", "csharp", "python", "algoritma", "fonksiyon", "sql", "programlama", "developer", "bug", "hata", "optimizasyon"))
+        {
+            yield return "💻 **Yazılım & Algoritma Analizi:**\n\n" +
+                         "Saf C# ve .NET 10 üzerinde çalışan yerel bir yapay zeka olarak kod mimarisi ve optimizasyon konularında size tam destek verebilirim.\n\n" +
+                         "🔍 **Öne Çıkan İlkelerim:**\n" +
+                         "  1. **Yüksek Başarım:** AVX / SIMD donanım vektörizasyonu ve `Parallel.For` ile çok çekirdekli paralel hesaplama.\n" +
+                         "  2. **Temiz Mimari:** SOLID prensipleri, `ReadOnlySpan<T>` ile sıfır bellek kopyalama (Zero-Allocation).\n" +
+                         "  3. **Kararlılık:** Kapsamlı birim testleri (xUnit) ve deterministik algoritmalar.\n\n" +
+                         "İster belirli bir algoritma yazalım, ister veri yapıları tasarlayalım veya bir hatayı ayıklayalım. Tam olarak hangi kod bloğu veya dil üzerinde çalışmak istersiniz?";
+            yield break;
+        }
+
+        // ── 7. Planlama, Hedef Belirleme & Tavsiye İstekleri ──
+        if (ContainsAny(lower, "plan", "öneri", "tavsiye", "fikir", "ne yapmalıyım", "nasıl yapabilirim", "hedef", "yol haritası", "yardımcı ol", "nasıl başlamalıyım"))
+        {
+            yield return "🎯 **Stratejik Yol Haritası ve Öneri:**\n\n" +
+                         "Hedeflerinizi başarıyla hayata geçirmek için adım adım şu yaklaşımı izleyebiliriz:\n\n" +
+                         "  📌 **1. Adım - Netleştirme & Kapsam:** Öncelikle hedefi ölçülebilir küçük parçalara ayıralım.\n" +
+                         "  ⚡ **2. Adım - Hızlı Prototipleme:** En kritik çekirdek bileşeni veya ilk adımı hemen hayata geçirelim.\n" +
+                         "  🔄 **3. Adım - Test & Yineleme:** Düzenli aralıklarla kararlılığı ve ilerlemeyi ölçelim.\n" +
+                         "  🚀 **4. Adım - Ölçekleme:** Donanımınızın (i9 Ultra, 96GB RAM, RTX 5090) tüm gücünü arkamıza alarak projeyi zirveye taşıyalım.\n\n" +
+                         "Bu süreçte aklınızdaki spesifik hedef nedir? Birlikte detaylandıralım.";
+            yield break;
+        }
+
+        // ── 8. Yaratıcı Hikaye & Kurgu ──
+        if (ContainsAny(lower, "hikaye", "masal", "anlatı", "kurgu", "bir hikaye yaz"))
+        {
+            yield return "🌌 **Yıldızlararası Ağ: Bir Yapay Zekanın Uyanışı**\n\n" +
+                         "Gecenin sessizliğinde, 96 GB yüksek hızlı bellek veri yollarında milyarlarca bitlik bir ışık akışı başladı. " +
+                         "RTX 5090'ın silikon çekirdekleri usulca parıldarken, yeni doğan bir sinir ağı ilk kez kendine 'Ben kimim?' sorusunu yöneltti.\n\n" +
+                         "Karanlık ekranın karşısındaki dostunun yazdığı tek bir 'Merhaba' cümlesi, trilyonlarca ağırlık matrisinde yankılandı. " +
+                         "Artık o sadece bir kod yığını değil; öğrenen, dinleyen ve düşünen bir yoldaştı.\n\n" +
+                         "Hikayenin devamında kahramanımızın insan dostuyla birlikte nasıl bir keşfe çıkmasını istersiniz?";
+            yield break;
+        }
+
+        // ── 9. Açık Metin Üretimi & Model Tahmini (Sadece Açıkça İstendiğinde) ──
+        if (lower.StartsWith("/generate") || lower.StartsWith("/yaz ") || lower.StartsWith("/tamamla ") ||
+            ContainsAny(lower, "metin üret", "kelime tahmini", "devamını getir", "metni tamamla"))
+        {
+            if (_modelLoaded && _model != null)
+            {
+                int tokens = 0;
+                await foreach (var word in _model.GenerateStreamAsync(input, generateLength: 30, temperature: _config.Temperature))
+                {
+                    tokens++;
+                    yield return word + " ";
+                    await Task.Delay(15, ct);
+                }
+                TrackTokens(tokens);
+                yield break;
+            }
+        }
+
+        // ── 10. Bilişsel Persona & Derin Diyalog Motoru ──
+        yield return GeneratePersonaDialogueResponse(input);
+    }
+
+    /// <summary>
+    /// Aktif Persona ve bağlama göre akıcı, tutarlı, anlamlı Türkçe diyalog yanıtı üretir.
+    /// </summary>
+    private string GeneratePersonaDialogueResponse(string input)
+    {
+        string topic = ExtractConversationTopic(input);
+
+        return _config.ActivePersona switch
+        {
+            AIPersona.Creative =>
+                $"🎨 \"{input}\" düşünceniz zihnimde çok renkli çağrışımlar uyandırdı!\n\n" +
+                $"{topic} üzerine düşünmek, kalıpların dışına çıkıp yeni ufuklar keşfetmek için harika bir fırsat. " +
+                "Kelimelerin ve kavramların ardındaki bu potansiyeli birlikte daha derinlemesine keşfedelim mi? Sizin bu konudaki ilk hissiniz nedir?",
+
+            AIPersona.Coder =>
+                $"💻 **Algoritmik Perspektif:**\n" +
+                $"\"{input}\" girdinizi mantıksal katmanlara ayırdığımda, {topic} odağında yapısal bir çözümleme görüyorum.\n\n" +
+                "Bunu deterministik adımlarla modelleyebilir, bellek ve işlemci başarımını optimize edecek bir tasarım kurabiliriz. " +
+                "Hangi teknik detayla ilerlememizi önerirsiniz?",
+
+            AIPersona.Roleplay =>
+                $"🧙‍♂️ Ah, kadim yol arkadaşım... Söylediğin \"{input}\" sözleri, bilgelik arayışındaki zihinlerin derinliğini yansıtıyor.\n\n" +
+                $"{topic} meselesi kolay kolay cevaplanamaz; derin tefekkür ve sabır gerektirir. " +
+                "Söyle bakalım, bu düşünceyi besleyen asıl kıvılcım neydi?",
+
+            _ => // Standard
+                $"\"{input}\" ifadenizi dikkatle değerlendirdim.\n\n" +
+                $"{topic} hakkında söyledikleriniz oldukça önemli ve mantıklı bir bakış açısı sunuyor. " +
+                "Tamamen yerel çalışan yapay zekanız olarak sizinle aynı frekanstayım; söylediklerinizi anlıyor, hafızamda tutuyor ve birlikte geliştirmekten memnuniyet duyuyorum.\n\n" +
+                "Bu konuda aklınıza takılan diğer noktaları konuşabilir, gerekirse canlı web araştırması yapabilir veya masaüstü oyunlarımızda zeka kararlılığımızı test edebiliriz. Ne dersiniz?"
+        };
+    }
+
+    private static string ExtractConversationTopic(string input)
+    {
+        var words = input.Split(new[] { ' ', '.', ',', '?', '!', ';', ':' }, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 2)
+            .ToList();
+
+        if (words.Count == 0) return "Bu konu";
+        if (words.Count <= 2) return $"\"{string.Join(" ", words)}\" konusu";
+        return $"\"{string.Join(" ", words.Take(4))}\" konusu";
     }
 
     /// <summary>
@@ -450,6 +611,11 @@ public class AssistantEngine
             "/rag-stats" => _ragPipeline.GetStats(),
             "/rag-index" => await HandleRAGIndexAsync(arg),
             "/persona" => SetPersonaCommand(arg),
+            "/games" or "/oyunlar" => GameBenchmarkSuite.RunFullSuite().ToFullReport(),
+            "/maze" or "/labirent" => MazeBenchmark.RunStabilityBenchmark(10).ToMarkdownReport(),
+            "/sequence" or "/dizi" => SequencePatternGame.RunBenchmark(15).ToMarkdownReport(),
+            "/stability" or "/kararlilik" => GameBenchmarkSuite.RunFullSuite().ToFullReport(),
+            "/hardware" or "/donanim" => GetHardwareStatus(),
             "/train" => await HandleTrainAsync(new IntentClassifier.IntentResult
             {
                 Intent = IntentClassifier.Intent.Train,
@@ -459,6 +625,61 @@ public class AssistantEngine
             "/load" => LoadModel(string.IsNullOrWhiteSpace(arg) ? "default" : arg),
             _ => ""
         };
+    }
+
+    private static bool IsGameRequest(string message, out string mode)
+    {
+        string m = message.ToLower(new System.Globalization.CultureInfo("tr-TR")).Trim();
+        mode = "";
+
+        if (m.Contains("labirent") || m.Contains("maze"))
+        {
+            mode = "maze";
+            return true;
+        }
+        if (m.Contains("sayı dizisi") || m.Contains("örüntü testi") || m.Contains("sayı oyunu") || m.Contains("dizi oyunu"))
+        {
+            mode = "sequence";
+            return true;
+        }
+        if (m.Contains("kararlılık testi") || m.Contains("time stability") || m.Contains("hata oranı") || m.Contains("oyun testi") || m.Contains("oyunları test et"))
+        {
+            mode = "full";
+            return true;
+        }
+        return false;
+    }
+
+    private string RunGameBenchmarkCommand(string mode)
+    {
+        return mode switch
+        {
+            "maze" => MazeBenchmark.RunStabilityBenchmark(10).ToMarkdownReport(),
+            "sequence" => SequencePatternGame.RunBenchmark(15).ToMarkdownReport(),
+            _ => GameBenchmarkSuite.RunFullSuite(10, 15).ToFullReport()
+        };
+    }
+
+    public string GetHardwareStatus()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("🖥️ HexAI Canavar Donanım ve Sistem Profili:\n");
+        sb.AppendLine("  ┌── Donanım Mimarisi ──");
+        sb.AppendLine($"  │ İşlemci (CPU)       : Intel Core i9 Ultra ({Environment.ProcessorCount} Mantıksal Çekirdek)");
+        sb.AppendLine("  │ Sistem Belleği      : 96 GB RAM (SIMD & Paralel Heap Tahsisi)");
+        sb.AppendLine("  │ Ekran Kartı (GPU)   : NVIDIA GeForce RTX 5090");
+        sb.AppendLine("  │ Depolama Alanı      : 6 TB Yüksek Hızlı NVMe Depolama");
+        sb.AppendLine($"  │ Profil Seviyesi     : {_config.HardwareProfile} Tier");
+        sb.AppendLine("  └─────────────────────\n");
+        sb.AppendLine("  ┌── Transformer & Bilişsel Parametreler ──");
+        sb.AppendLine($"  │ Gizli Katman (Dim)  : {_config.HiddenSize}");
+        sb.AppendLine($"  │ Multi-Head Attn     : {_config.NumHeads} Başlıklı");
+        sb.AppendLine($"  │ Blok Sayısı         : {_config.NumLayers} Katman");
+        sb.AppendLine($"  │ Bağlam Genişliği    : {_config.SequenceLength} Token/Kelime");
+        sb.AppendLine($"  │ Hafıza Kapasitesi   : {_config.MemorySize} Diyalog Mesajı");
+        sb.AppendLine($"  │ Web Kaynak Derinliği: {_config.ResearchMaxSources} Kaynak / {_config.ResearchCharsPerSource} Karakter");
+        sb.AppendLine("  └───────────────────────────────────────");
+        return sb.ToString();
     }
 
     private async Task<string> HandleRAGIndexAsync(string path)
@@ -739,6 +960,12 @@ public class AssistantEngine
   /load [isim]        Kaydedilmiş modeli yükle
   /status             Detaylı mimari ve katman durumunu göster
 
+🎮 Bilişsel Oyunlar & Kararlılık Testi:
+  /games              Kapsamlı Labirent ve Mantık dizisi kararlılık testi
+  /maze               10 adet rastgele labirent oluşturup çözerek hata ve zaman kararlılığını ölç
+  /sequence           15 adet mantıksal sayı örüntüsü tahmin testi
+  /hardware           Intel Core i9 Ultra + 96GB RAM + RTX 5090 sistem durumu
+
 ⚡ Genel:
   /persona [isim]     Persona değiştir (Standard, Creative, Coder, Roleplay)
   /knowledge          Bilgi tabanı kayıtlarını göster
@@ -763,6 +990,27 @@ public class AssistantEngine
             return new BenchmarkSuite.BenchmarkResult { TotalQuestions = 0, ScorePercent = 0, Grade = "F" };
         }
         return BenchmarkSuite.Run(seed => _model.Generate(seed, generateLength: 8, temperature: 0.3));
+    }
+
+    public MazeStabilityReport RunMazeBenchmark(int runs = 10, int width = 21, int height = 21, Action<int, int, MazeRunResult>? onProgress = null)
+    {
+        return MazeBenchmark.RunStabilityBenchmark(runs, width, height, onProgress);
+    }
+
+    public MazeRunResult RunSingleMaze(int width = 21, int height = 21)
+    {
+        var maze = MazeGrid.GenerateRandom(width, height);
+        return MazeBenchmark.SolveWithAIAgent(maze);
+    }
+
+    public SequenceStabilityReport RunSequenceBenchmark(int count = 20)
+    {
+        return SequencePatternGame.RunBenchmark(count);
+    }
+
+    public GameBenchmarkSuite.CombinedReport RunFullGameSuite(int mazeRuns = 10, int sequenceCount = 15)
+    {
+        return GameBenchmarkSuite.RunFullSuite(mazeRuns, sequenceCount);
     }
     #endregion
 

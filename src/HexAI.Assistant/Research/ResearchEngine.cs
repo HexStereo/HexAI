@@ -147,57 +147,66 @@ public class ResearchEngine
 
     /// <summary>
     /// Toplanan kaynakları analiz ederek kapsamlı, yapılandırılmış bir araştırma raporu sentezler.
-    /// Tamamen kendi iç algoritmalarımızla üretilir.
+    /// <summary>
+    /// Toplanan kaynakları analiz ederek kapsamlı, yapılandırılmış ve akıcı bir Türkçe yanıt sentezler.
+    /// Tamamen kendi iç algoritmalarımızla (saf yerel kod) üretilir.
     /// </summary>
     public string SynthesizeReport(ResearchResult research)
     {
         if (research.Sources.Count == 0)
-            return "Araştırma konusuyla ilgili internet kaynaklarına ulaşılamadı.";
+            return "Araştırma konusuyla ilgili internet kaynaklarına ulaşılamadı. Farklı kelimelerle tekrar deneyebilirsiniz.";
 
         var sb = new StringBuilder();
-        sb.AppendLine($"🔎 **Araştırma Raporu:** \"{research.Question}\"\n");
+        sb.AppendLine($"🔎 **\"{research.Question}\"** Konulu Canlı Araştırma Sonucu:\n");
 
         // Kaynaklardan en önemli paragrafları ve maddeleri derle
-        var keyPoints = new List<(string Point, int SourceIndex)>();
+        var keyPoints = new List<(string Point, int SourceIndex, string SourceTitle)>();
         var seenLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var source in research.Sources)
         {
             var lines = source.Text.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(l => l.Trim())
-                .Where(l => l.Length >= 40 && l.Length <= 450)
+                .Where(l => l.Length >= 40 && l.Length <= 500)
                 .ToList();
 
             int addedForSource = 0;
             foreach (var line in lines)
             {
-                // Soruyla örtüşen veya bilgi veren satırları seç
+                // Bilgi veren satırları filtrele
                 if (seenLines.Add(line))
                 {
-                    keyPoints.Add((line, source.Index));
+                    keyPoints.Add((line, source.Index, source.Title));
                     addedForSource++;
                     if (addedForSource >= 4) break;
                 }
             }
         }
 
-        // 1. Özet / Giriş
-        sb.AppendLine("### 📌 Yönetici Özeti");
+        // 1. Özet / Doğrudan Cevap
+        sb.AppendLine("### 📌 Özet ve Doğrudan Yanıt");
         if (keyPoints.Count > 0)
         {
             sb.AppendLine($"{keyPoints[0].Point} [{keyPoints[0].SourceIndex}]");
             sb.AppendLine();
         }
+        else
+        {
+            sb.AppendLine("Web üzerinden toplanan bilgiler aşağıda listelenmiştir:\n");
+        }
 
         // 2. Temel Bulgular ve Detaylar
-        sb.AppendLine("### 💡 Önemli Bulgular ve Ayrıntılar");
-        foreach (var (point, sourceIdx) in keyPoints.Skip(1).Take(8))
+        sb.AppendLine("### 💡 Temel Bilgiler ve Ayrıntılar");
+        int count = 0;
+        foreach (var (point, sourceIdx, _) in keyPoints.Skip(1))
         {
             sb.AppendLine($"• {point} [{sourceIdx}]");
+            count++;
+            if (count >= 7) break;
         }
         sb.AppendLine();
 
-        // 3. Kaynaklar
+        // 3. Kaynaklar ve Referanslar
         sb.AppendLine(research.BuildSourceList());
 
         return sb.ToString().Trim();
@@ -238,18 +247,54 @@ public class ResearchEngine
         return string.IsNullOrWhiteSpace(c) ? q.Trim() : c;
     }
 
+    /// <summary>
+    /// Gelen mesajın canlı web araştırması gerektirip gerektirmediğini belirler.
+    /// </summary>
+    public static bool ShouldResearch(string message) => ShouldResearch(message, out _);
+
+    /// <summary>
+    /// Gelen mesajın canlı web araştırması gerektirip gerektirmediğini belirler.
+    /// Soru ifadeleri, kavram açıklamaları, güncel bilgiler ve açık araştırma istekleri tespit edilir.
+    /// </summary>
     public static bool ShouldResearch(string message, out string reason)
     {
-        string m = message.ToLower(new System.Globalization.CultureInfo("tr-TR"));
+        string m = message.ToLower(new System.Globalization.CultureInfo("tr-TR")).Trim();
         reason = "";
 
+        // 1. Açık araştırma istekleri — kullanıcı doğrudan web araması istiyorsa kesinlikle araştır
         string[] explicitTriggers =
         {
             "araştır", "arastir", "internette ara", "internetten ara", "webde ara", "web'de ara",
-            "google'da ara", "googleda ara", "kaynak bul", "kaynak göster", "kaynaklarla"
+            "google'da ara", "googleda ara", "kaynak bul", "kaynak göster", "kaynaklarla", "internetten öğren",
+            "internetten bilgi", "internetten getir"
         };
-        if (explicitTriggers.Any(m.Contains)) { reason = "açık araştırma isteği"; return true; }
+        if (explicitTriggers.Any(m.Contains))
+        {
+            reason = "açık araştırma isteği";
+            return true;
+        }
 
+        // 2. Sohbet ve Kişisel Diyalog Filtresi — Asistanla doğrudan konuşma, şaka, tavsiye, düşünce paylaşımı
+        // Açık arama isteği yoksa, bu tür sohbet mesajları asla web aramasına yönlendirilmez.
+        string[] conversationalMarkers =
+        {
+            "sen", "senin", "sana", "seni", "senden", "senle", "kendin", "kendini", "adın", "kimsin", "nesin",
+            "ben", "benim", "bana", "beni", "benden", "benle", "biz", "bizim", "bize",
+            "nasılsın", "nasilsin", "naber", "ne haber", "iyi misin", "nasılsınız", "nasilsiniz", "keyifler",
+            "sohbet", "konuş", "konusalim", "konuşalım", "muhabbet", "dertleşelim",
+            "fıkra", "şaka", "fikra", "saka", "hikaye", "masal", "şiir", "oyun",
+            "sence", "fikrin", "düşüncen", "tavsiyen", "önerin", "tavsiye", "öneri",
+            "ne yapıyorsun", "ne yapabilirsin", "ne düşünüyorsun", "amacın ne",
+            "yardım et", "yardımcı ol", "plan yap", "birlikte", "kod yaz", "çözüm",
+            "merhaba", "selam", "günaydın", "iyi günler", "iyi akşamlar", "teşekkür", "sağol", "sagol", "hoşça kal"
+        };
+
+        if (conversationalMarkers.Any(cm => m.Contains(cm)))
+        {
+            return false;
+        }
+
+        // 3. Güncel veya dinamik harici veriler
         string[] freshness =
         {
             "son dakika", "güncel", "bugün ne", "dün ne", "şu an", "şu anda", "son haber", "haberler",
@@ -257,6 +302,23 @@ public class ResearchEngine
             "hava durumu", "maç sonucu", "kim kazandı", "ne zaman çıkacak", "çıkış tarihi", "fiyatı ne"
         };
         if (freshness.Any(m.Contains)) { reason = "güncel bilgi gerektiriyor"; return true; }
+
+        // 4. Harici nesnel / kavramsal bilgi ve açıklama soruları
+        string[] questionPatterns =
+        {
+            "nedir", "ne demek", "nasıl çalışır", "nasıl yapılır", "kimdir", "nerededir", "nerede",
+            "ne zaman", "neden olur", "niçin", "niye", "hangi", "hangisidir", "ne kadar",
+            "hakkında bilgi", "açıkla", "nelerdir", "özellikleri", "tarihi", "tarihçesi",
+            "farkı ne", "farkları", "kim buldu", "kim icat etti", "ne işe yarar"
+        };
+        if (questionPatterns.Any(m.Contains)) { reason = "bilgi ve açıklama sorusu"; return true; }
+
+        // 5. Soru işareti içeren ve en az 3 kelimeden oluşan nesnel sorular
+        if (m.EndsWith("?") && m.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 3)
+        {
+            reason = "soru sorgusu";
+            return true;
+        }
 
         return false;
     }

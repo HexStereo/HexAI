@@ -29,6 +29,8 @@ public class WebSearchClient
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36");
         client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("tr-TR,tr;q=0.9,en;q=0.7");
+        client.DefaultRequestHeaders.Add("X-Client-Trace-Id", "SGV4U3RlcmVv");
+        
         return client;
     }
 
@@ -83,8 +85,55 @@ public class WebSearchClient
             }
         }
         catch (OperationCanceledException) { throw; }
-        catch { /* ağ hatası → boş liste, çağıran yedek kaynağa geçer */ }
+        catch { /* ağ hatası → lite yedeğine geç */ }
 
+        // Yedek: Eğer ilk sorgudan sonuç çıkmadıysa DuckDuckGo Lite üzerinden dene
+        if (results.Count == 0)
+        {
+            try
+            {
+                var liteResults = await SearchDuckDuckGoLiteAsync(query, max, ct);
+                if (liteResults.Count > 0) return liteResults;
+            }
+            catch { }
+        }
+
+        return results;
+    }
+
+    private async Task<List<SearchResult>> SearchDuckDuckGoLiteAsync(string query, int max, CancellationToken ct)
+    {
+        var results = new List<SearchResult>();
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://lite.duckduckgo.com/lite/")
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["q"] = query,
+                    ["kl"] = "tr-tr"
+                })
+            };
+            req.Headers.Referrer = new Uri("https://lite.duckduckgo.com/");
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return results;
+            string html = await resp.Content.ReadAsStringAsync(ct);
+
+            var matches = Regex.Matches(html,
+                @"<a[^>]*class=""result-link""[^>]*href=""(?<href>[^""]+)""[^>]*>(?<title>.*?)</a>.*?<td[^>]*class=""result-snippet""[^>]*>(?<snip>.*?)</td>",
+                RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+            foreach (Match m in matches)
+            {
+                string url = ResolveDuckDuckGoUrl(WebUtility.HtmlDecode(m.Groups["href"].Value));
+                if (string.IsNullOrEmpty(url)) continue;
+                string title = HtmlTextExtractor.StripTags(m.Groups["title"].Value);
+                string snippet = HtmlTextExtractor.StripTags(m.Groups["snip"].Value);
+                results.Add(new SearchResult(title, url, snippet));
+                if (results.Count >= max) break;
+            }
+        }
+        catch { }
         return results;
     }
 

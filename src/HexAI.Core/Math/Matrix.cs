@@ -172,31 +172,65 @@ public class Matrix
         int bCols = b.Cols;
         int vectorSize = System.Numerics.Vector<double>.Count;
 
-        for (int i = 0; i < a.Rows; i++)
+        if (a.Rows >= 8)
         {
-            int rowOffsetA = i * aCols;
-            int rowOffsetResult = i * bCols;
-            for (int k = 0; k < aCols; k++)
+            Parallel.For(0, a.Rows, i =>
             {
-                double aVal = a.Data[rowOffsetA + k];
-                int rowOffsetB = k * bCols;
-                int j = 0;
-
-                if (System.Numerics.Vector.IsHardwareAccelerated && bCols >= vectorSize)
+                int rowOffsetA = i * aCols;
+                int rowOffsetResult = i * bCols;
+                for (int k = 0; k < aCols; k++)
                 {
-                    var va = new System.Numerics.Vector<double>(aVal);
-                    for (; j <= bCols - vectorSize; j += vectorSize)
+                    double aVal = a.Data[rowOffsetA + k];
+                    int rowOffsetB = k * bCols;
+                    int j = 0;
+
+                    if (System.Numerics.Vector.IsHardwareAccelerated && bCols >= vectorSize)
                     {
-                        var vr = new System.Numerics.Vector<double>(result.Data, rowOffsetResult + j);
-                        var vb = new System.Numerics.Vector<double>(b.Data, rowOffsetB + j);
-                        var vres = vr + va * vb;
-                        vres.CopyTo(result.Data, rowOffsetResult + j);
+                        var va = new System.Numerics.Vector<double>(aVal);
+                        for (; j <= bCols - vectorSize; j += vectorSize)
+                        {
+                            var vr = new System.Numerics.Vector<double>(result.Data, rowOffsetResult + j);
+                            var vb = new System.Numerics.Vector<double>(b.Data, rowOffsetB + j);
+                            var vres = vr + va * vb;
+                            vres.CopyTo(result.Data, rowOffsetResult + j);
+                        }
+                    }
+
+                    for (; j < bCols; j++)
+                    {
+                        result.Data[rowOffsetResult + j] += aVal * b.Data[rowOffsetB + j];
                     }
                 }
-
-                for (; j < bCols; j++)
+            });
+        }
+        else
+        {
+            for (int i = 0; i < a.Rows; i++)
+            {
+                int rowOffsetA = i * aCols;
+                int rowOffsetResult = i * bCols;
+                for (int k = 0; k < aCols; k++)
                 {
-                    result.Data[rowOffsetResult + j] += aVal * b.Data[rowOffsetB + j];
+                    double aVal = a.Data[rowOffsetA + k];
+                    int rowOffsetB = k * bCols;
+                    int j = 0;
+
+                    if (System.Numerics.Vector.IsHardwareAccelerated && bCols >= vectorSize)
+                    {
+                        var va = new System.Numerics.Vector<double>(aVal);
+                        for (; j <= bCols - vectorSize; j += vectorSize)
+                        {
+                            var vr = new System.Numerics.Vector<double>(result.Data, rowOffsetResult + j);
+                            var vb = new System.Numerics.Vector<double>(b.Data, rowOffsetB + j);
+                            var vres = vr + va * vb;
+                            vres.CopyTo(result.Data, rowOffsetResult + j);
+                        }
+                    }
+
+                    for (; j < bCols; j++)
+                    {
+                        result.Data[rowOffsetResult + j] += aVal * b.Data[rowOffsetB + j];
+                    }
                 }
             }
         }

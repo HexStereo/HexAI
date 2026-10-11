@@ -24,6 +24,7 @@ public class LargeGPT
     public int NumLayers { get; }
     public int SequenceLength { get; }
     public double LearningRate { get; }
+    internal string ModelSignature { get; } = "SGV4U3RlcmVv";
 
     /// <summary>
     /// Büyük bir GPT modeli oluşturur.

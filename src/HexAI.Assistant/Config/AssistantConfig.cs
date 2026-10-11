@@ -19,11 +19,67 @@ public enum AIPersona
 }
 
 /// <summary>
+/// Bilgisayar donanım seviyesi ve parametre ölçekleme profili.
+/// </summary>
+public enum HardwareTier
+{
+    /// <summary>Standart sistem (8-16 GB RAM)</summary>
+    Standard,
+    /// <summary>Gelişmiş sistem (32 GB RAM)</summary>
+    High,
+    /// <summary>Canavar Sistem (Intel Core i9 Ultra, 96GB RAM, RTX 5090, 6TB)</summary>
+    Ultra
+}
+
+/// <summary>
 /// Asistan yapılandırma ayarları.
 /// JSON dosyasından okunur ve yazılır.
 /// </summary>
 public class AssistantConfig
 {
+    /// <summary>Aktif donanım seviyesi ve parametre ölçeği.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public HardwareTier HardwareProfile { get; set; } = HardwareTier.Ultra;
+
+    /// <summary>
+    /// Donanım profiline göre parametre ölçeklerini ayarlar.
+    /// </summary>
+    public void ApplyHardwareTier(HardwareTier tier)
+    {
+        HardwareProfile = tier;
+        switch (tier)
+        {
+            case HardwareTier.Standard:
+                HiddenSize = 64;
+                NumHeads = 2;
+                NumLayers = 1;
+                SequenceLength = 16;
+                MemorySize = 20;
+                ResearchMaxSources = 3;
+                ResearchCharsPerSource = 2000;
+                break;
+            case HardwareTier.High:
+                HiddenSize = 128;
+                NumHeads = 4;
+                NumLayers = 2;
+                SequenceLength = 24;
+                MemorySize = 50;
+                ResearchMaxSources = 4;
+                ResearchCharsPerSource = 3500;
+                break;
+            case HardwareTier.Ultra:
+            default:
+                HiddenSize = 256;
+                NumHeads = 8;
+                NumLayers = 4;
+                SequenceLength = 32;
+                MemorySize = 100;
+                ResearchMaxSources = 6;
+                ResearchCharsPerSource = 5000;
+                break;
+        }
+    }
+
     /// <summary>Asistanın adı.</summary>
     public string AssistantName { get; set; } = "HexAI";
 
@@ -39,29 +95,29 @@ public class AssistantConfig
     /// <summary>Log dizini.</summary>
     public string LogsDirectory { get; set; } = "data/logs";
 
-    /// <summary>MiniGPT gizli katman boyutu.</summary>
-    public int HiddenSize { get; set; } = 64;
+    /// <summary>MiniGPT / LargeGPT gizli katman boyutu (Ultra: 256).</summary>
+    public int HiddenSize { get; set; } = 256;
 
-    /// <summary>Attention kafa sayısı (LargeGPT için).</summary>
-    public int NumHeads { get; set; } = 4;
+    /// <summary>Attention kafa sayısı (LargeGPT için - Ultra: 8).</summary>
+    public int NumHeads { get; set; } = 8;
 
-    /// <summary>Transformer blok sayısı (LargeGPT için).</summary>
-    public int NumLayers { get; set; } = 2;
+    /// <summary>Transformer blok sayısı (LargeGPT için - Ultra: 4).</summary>
+    public int NumLayers { get; set; } = 4;
 
-    /// <summary>Sıra uzunluğu (LargeGPT için bağlam penceresi).</summary>
-    public int SequenceLength { get; set; } = 16;
+    /// <summary>Sıra uzunluğu (LargeGPT bağlam penceresi - Ultra: 32 kelime).</summary>
+    public int SequenceLength { get; set; } = 32;
 
     /// <summary>Öğrenme oranı.</summary>
-    public double LearningRate { get; set; } = 0.05;
+    public double LearningRate { get; set; } = 0.02;
 
     /// <summary>Varsayılan eğitim epoch sayısı.</summary>
-    public int DefaultEpochs { get; set; } = 500;
+    public int DefaultEpochs { get; set; } = 300;
 
     /// <summary>Metin üretim sıcaklığı (temperature).</summary>
     public double Temperature { get; set; } = 0.7;
 
-    /// <summary>Sohbet hafıza boyutu (son N mesaj).</summary>
-    public int MemorySize { get; set; } = 50;
+    /// <summary>Sohbet hafıza boyutu (son N mesaj - Ultra: 100).</summary>
+    public int MemorySize { get; set; } = 100;
 
     /// <summary>Son aktif model adı.</summary>
     public string? LastModelName { get; set; }
@@ -117,7 +173,7 @@ public class AssistantConfig
     public int TypewriterDelayMs { get; set; } = 15;
 
     /// <summary>Sesli yanıt (Text-to-Speech) açık mı?</summary>
-    public bool VoiceOutputEnabled { get; set; } = true;
+    public bool VoiceOutputEnabled { get; set; } = false;
 
     /// <summary>Yapılandırma dosyası yolu.</summary>
     private static string ConfigPath => Path.Combine(
@@ -173,22 +229,41 @@ public class AssistantConfig
     }
 
     /// <summary>Tam model dizin yolunu döndürür.</summary>
-    public string GetModelsPath() =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, ModelsDirectory);
+    public string GetModelsPath() => ResolvePath(ModelsDirectory);
 
     /// <summary>Tam corpus dizin yolunu döndürür.</summary>
-    public string GetCorpusPath() =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CorpusDirectory);
+    public string GetCorpusPath() => ResolvePath(CorpusDirectory);
 
     /// <summary>Tam log dizin yolunu döndürür.</summary>
-    public string GetLogsPath() =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, LogsDirectory);
+    public string GetLogsPath() => ResolvePath(LogsDirectory);
 
     /// <summary>Veri kök dizini (vektör deposu vb. için).</summary>
     public string GetDataPath() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "HexAI", "data");
 
     /// <summary>Tam bilgi tabanı dizin yolunu döndürür.</summary>
-    public string GetKnowledgeBasePath() =>
-        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, KnowledgeBasePath);
+    public string GetKnowledgeBasePath() => ResolvePath(KnowledgeBasePath);
+
+    private static string ResolvePath(string relativePath)
+    {
+        string p1 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, relativePath);
+        if (Directory.Exists(p1) || File.Exists(p1)) return p1;
+
+        string p2 = Path.Combine(Directory.GetCurrentDirectory(), relativePath);
+        if (Directory.Exists(p2) || File.Exists(p2)) return p2;
+
+        try
+        {
+            var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            for (int i = 0; i < 4 && dir != null; i++)
+            {
+                string candidate = Path.Combine(dir.FullName, relativePath);
+                if (Directory.Exists(candidate) || File.Exists(candidate)) return candidate;
+                dir = dir.Parent;
+            }
+        }
+        catch { }
+
+        return p1;
+    }
 }
