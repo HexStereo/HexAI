@@ -91,8 +91,11 @@ public class IntentClassifier
         },
         [Intent.Help] = new[]
         {
-            "yardım", "yardim", "help", "nasıl", "nasil", "ne yapabilirsin", "yeteneklerin", "komutlar",
-            "neler yaparsın", "neler yaparsin", "özellikler", "ozellikler", "kullanım", "kullanim"
+            "yardım", "yardim", "help", "nasıl", "nasil", "ne yapabilirsin", "neler yapabilirsin",
+            "neler yapabiliyorsun", "ne yapabiliyorsun", "ne özelliklere sahipsin", "ne ozelliklere sahipsin",
+            "özelliklerin neler", "ozelliklerin neler", "yeteneklerin neler", "yeteneklerin", "komutlar",
+            "neler yaparsın", "neler yaparsin", "özellikler", "ozellikler", "kullanım", "kullanim",
+            "sen kimsin", "kendini tanıt", "kendini tanit", "kendinden bahset", "ne işe yararsın", "ne ise yararsin"
         },
         [Intent.Chat] = new[]
         {
@@ -122,7 +125,22 @@ public class IntentClassifier
             return ClassifySlashCommand(normalizedInput, result);
         }
 
-        // Öncelik 2: Matematiksel ifade kontrolü
+        // Öncelik 2: Asistan yetenekleri, özellikleri ve kendini tanıtma soruları
+        string[] capabilityQueries = new[]
+        {
+            "neler yapabiliyorsun", "ne yapabiliyorsun", "ne yapabilirsin", "neler yapabilirsin",
+            "ne özelliklere sahipsin", "ne ozelliklere sahipsin", "özelliklerin neler", "ozelliklerin neler",
+            "yeteneklerin neler", "yeteneklerin", "neler yaparsın", "neler yaparsin", "ne işe yararsın",
+            "sen kimsin", "kendini tanıt", "kendini tanit", "kendinden bahset", "bana neler yapabileceğini anlat"
+        };
+        if (capabilityQueries.Any(q => normalizedInput.Contains(q)))
+        {
+            result.Intent = Intent.Help;
+            result.Confidence = 1.0;
+            return result;
+        }
+
+        // Öncelik 3: Matematiksel ifade kontrolü
         if (IsMathExpression(normalizedInput))
         {
             result.Intent = Intent.Math;
@@ -131,7 +149,7 @@ public class IntentClassifier
             return result;
         }
 
-        // Öncelik 3: Anahtar kelime eşleştirme
+        // Öncelik 4: Anahtar kelime eşleştirme
         var scores = new Dictionary<Intent, int>();
         foreach (var (intent, keywords) in _intentKeywords)
         {

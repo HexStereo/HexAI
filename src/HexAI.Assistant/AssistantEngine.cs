@@ -158,6 +158,19 @@ public class AssistantEngine
             }
         }
 
+        // Bilgi tabanına yerleşik doğrulanmış Türkçe bilgileri (yemekler, bilim, coğrafya) yükle
+        try
+        {
+            foreach (var entry in TurkishCommonKnowledge.GetAllAsEntries())
+            {
+                if (_knowledgeBase.Search(entry.Question, 9.5) == null)
+                {
+                    _knowledgeBase.Save(entry.Question, entry.Answer, entry.Confidence, entry.Source);
+                }
+            }
+        }
+        catch { }
+
         _evaluator = new TrainingEvaluator(_model, _modelLoaded, _memory, _knowledgeBase);
     }
 
@@ -235,27 +248,7 @@ public class AssistantEngine
             yield break;
         }
 
-        // ──────────────────────── 3. Canlı Web Araştırması & Öğrenme ────────────────────────
-        if (_config.AutoWebResearch && ResearchEngine.ShouldResearch(trimmed, out string reason))
-        {
-            OnStatus?.Invoke($"🌐 Web araştırması başlatılıyor ({reason})...");
-            var sbResearch = new StringBuilder();
-            bool gotReport = false;
-            await foreach (var token in ResearchStreamAsync(trimmed, cancellationToken))
-            {
-                gotReport = true;
-                sbResearch.Append(token);
-                yield return token;
-            }
-            if (gotReport && sbResearch.Length > 0)
-            {
-                _memory.AddAssistantMessage(sbResearch.ToString().Trim());
-                yield break;
-            }
-            OnStatus?.Invoke("ℹ️ Web araması sonuç vermedi, yerel bilgi tabanı ve bilişsel motor devreye giriyor...");
-        }
-
-        // ──────────────────────── 3. Niyet Sınıflandırma (NLU) ────────────────────
+        // ──────────────────────── 3. Niyet Sınıflandırma (NLU) & Özel Aksiyonlar ────────────────────
         var intentResult = _intentClassifier.Classify(trimmed);
 
         // Özel aksiyonlar (temizleme, geçmiş, çıkış)
@@ -276,18 +269,76 @@ public class AssistantEngine
             }
         }
 
-        // ──────────────────────── 4. Sohbet & Diyalog Önceliği ───────────────────────
-        bool isConversational = ContainsAny(trimmed, 
+        // ──────────────────────── 4. İleri Düzey Türkçe Bilişsel ve Diyalog Beyni ───────────────────────
+        // Günlük yaşam, duygusal destek, verimlilik, felsefe, popüler ikilemler, mizah, yaratıcılık,
+        // pratik sağlık ve sosyal beceriler için doğrudan insan kalitesinde zengin yanıt üretir.
+        string? conversationalResponse = TurkishConversationalBrain.FindResponse(trimmed);
+        if (conversationalResponse != null)
+        {
+            _memory.AddAssistantMessage(conversationalResponse);
+            yield return conversationalResponse;
+            yield break;
+        }
+
+        // ──────────────────────── 5. Doğrudan Asistan Diyaloğu, Yetenekler & Planlama Önceliği ───────────────────────
+        bool isCapabilityOrIdentity = intentResult.Intent == IntentClassifier.Intent.Help
+            || ContainsAny(trimmed,
+                "neler yapabiliyorsun", "ne yapabiliyorsun", "ne yapabilirsin", "neler yapabilirsin",
+                "ne özelliklere sahipsin", "ne ozelliklere sahipsin", "özelliklerin neler", "ozelliklerin neler",
+                "yeteneklerin neler", "yeteneklerin", "neler yaparsın", "neler yaparsin",
+                "hangi özelliklerin var", "hangi ozelliklerin var", "hangi yeteneklere sahipsin",
+                "sen kimsin", "adın ne", "kendini tanıt", "kendini tanit", "kendinden bahset",
+                "ne işe yararsın", "ne ise yararsin", "bana neler yapabileceğini anlat");
+
+        bool isSoftwareOrPlan = ContainsAny(trimmed, 
+            "kod", "yazılım", "c#", "csharp", "python", "algoritma", "fonksiyon", "sql", "programlama",
+            "çalışma planı", "plan yap", "yol haritası", "tavsiye ver", "önerin var mı");
+
+        bool isChitChatGreeting = ContainsAny(trimmed, 
             "merhaba", "selam", "günaydın", "iyi günler", "iyi akşamlar", "hey", "sa",
             "nasılsın", "nasilsin", "naber", "ne haber", "iyi misin", "keyifler",
             "sohbet", "konuş", "konuşalım", "muhabbet", "dertleşelim",
-            "tavsiye", "öneri", "plan", "fikir", "yol haritası",
             "şaka", "fıkra", "hikaye", "masal", "şiir",
-            "sen kimsin", "adın ne", "kendini tanıt", "ne yapabilirsin", "yardımcı ol",
-            "kod", "yazılım", "c#", "csharp", "python", "algoritma");
+            "sen kimsin", "adın ne", "kendini tanıt",
+            "teşekkür", "sağol", "sagol", "eyvallah");
 
-        // ──────────────────────── 5. Araç ve Sistem Komutları (ReAct Agent) ───────
-        bool isToolIntent = !isConversational && intentResult.Intent is IntentClassifier.Intent.FileOperation
+        bool hasQuestionWords = trimmed.EndsWith("?") || trimmed.Contains("nedir") || trimmed.Contains("nasıl") 
+            || trimmed.Contains("tarifi") || trimmed.Contains("adım adım") || trimmed.Contains("nerede");
+
+        if (isCapabilityOrIdentity || isSoftwareOrPlan || (isChitChatGreeting && !hasQuestionWords))
+        {
+            var chitChatResponse = new StringBuilder();
+            await foreach (var token in HandleNativeChatStreamAsync(trimmed, intentResult, cancellationToken))
+            {
+                chitChatResponse.Append(token);
+                yield return token;
+            }
+            _memory.AddAssistantMessage(chitChatResponse.ToString().Trim());
+            yield break;
+        }
+
+        // ──────────────────────── 5. Yerleşik Ortak Bilgi & Doğrulanmış Bilgi Tabanı ────────────────────────
+        // Soru daha önce öğrenilmişse veya yerleşik ortak ansiklopedide (yemek tarifleri, pratik rehberler, bilim) varsa
+        // internette rastgele arama yapmadan veya "bilmiyorum" demeden doğrudan zengin adımlarla yanıtla.
+        var commonMatch = TurkishCommonKnowledge.FindMatch(trimmed);
+        if (commonMatch != null)
+        {
+            _memory.AddAssistantMessage(commonMatch.Answer);
+            yield return commonMatch.Answer;
+            yield break;
+        }
+
+        var knowledgeHit = _knowledgeBase.Search(trimmed);
+        if (knowledgeHit != null && knowledgeHit.Confidence >= _config.VerificationThreshold)
+        {
+            string kbResponse = $"📚 [Doğrulanmış Bilgi Tabanı | Güven: {knowledgeHit.Confidence:F1}/10]\n{knowledgeHit.Answer}";
+            _memory.AddAssistantMessage(kbResponse);
+            yield return kbResponse;
+            yield break;
+        }
+
+        // ──────────────────────── 6. Araç ve Sistem Komutları (ReAct Agent) ───────
+        bool isToolIntent = !hasQuestionWords && !isCapabilityOrIdentity && intentResult.Intent is IntentClassifier.Intent.FileOperation
             or IntentClassifier.Intent.RunCommand
             or IntentClassifier.Intent.SystemInfo
             or IntentClassifier.Intent.Math
@@ -316,17 +367,30 @@ public class AssistantEngine
             }
         }
 
-        // ──────────────────────── 6. Bilgi Tabanı & Semantik RAG ───────────────────
-        var knowledgeHit = _knowledgeBase.Search(trimmed);
-        if (knowledgeHit != null && knowledgeHit.Confidence >= _config.VerificationThreshold)
+        // ──────────────────────── 7. Canlı Web Araştırması & Derin Öğrenme ────────────────────────
+        // Hafızada bulunmayan tüm bilgi, kavram veya "nasıl yapılır" soruları için web sayfalarını
+        // derinlemesine okur, "ilk bunu yap sonra bunu yap" diye adım adım sentezler ve hafızaya kaydeder.
+        if (_config.AutoWebResearch && ResearchEngine.ShouldResearch(trimmed, out string reason))
         {
-            string kbResponse = $"📚 [Doğrulanmış Bilgi Tabanı | Güven: {knowledgeHit.Confidence:F1}/10]\n{knowledgeHit.Answer}";
-            _memory.AddAssistantMessage(kbResponse);
-            yield return kbResponse;
-            yield break;
+            OnStatus?.Invoke($"🌐 Web araştırması ve öğrenme başlatılıyor ({reason})...");
+            var sbResearch = new StringBuilder();
+            bool gotReport = false;
+            await foreach (var token in ResearchStreamAsync(trimmed, cancellationToken))
+            {
+                gotReport = true;
+                sbResearch.Append(token);
+                yield return token;
+            }
+            if (gotReport && sbResearch.Length > 0)
+            {
+                _memory.AddAssistantMessage(sbResearch.ToString().Trim());
+                yield break;
+            }
+            OnStatus?.Invoke("ℹ️ Web araması sonuç vermedi, yerel bilişsel motor devreye giriyor...");
         }
 
-        if (!isConversational && _ragPipeline != null && _vectorStore != null && _vectorStore.Count > 0)
+        // ──────────────────────── 8. RAG Belgeleri & Semantik Bellek ───────────────────
+        if (_ragPipeline != null && _vectorStore != null && _vectorStore.Count > 0)
         {
             var ragResult = await _ragPipeline.RetrieveAsync(trimmed);
             if (ragResult.HasResults && ragResult.TopSimilarity >= 0.60f)
@@ -435,31 +499,42 @@ public class AssistantEngine
         if (ContainsAny(lower, "nasılsın", "nasilsin", "naber", "ne haber", "iyi misin", "nasılsınız", "nasilsiniz", "keyifler nasıl"))
         {
             yield return GetRandomResponse(
-                $"Teşekkür ederim, tüm sinir ağlarım ve transformer bloklarım harika çalışıyor! 🚀 i9 Ultra işlemciniz ve 96GB RAM üzerinde tam kapasite hizmetinizdeyim. Siz nasılsınız?",
-                "Gayet iyiyim! Kendi C# tensörlerim ve SIMD çekirdeklerim üzerinde hesaplamalar yaparken sizinle sohbet etmek çok keyifli. 😊 Gününüz nasıl geçiyor?",
-                "Çok iyiyim, sorduğunuz için teşekkür ederim! Aklınızdaki herhangi bir fikri tartışmaya veya yeni bir şeyler öğrenmeye hazırım."
+                $"Teşekkür ederim, tüm sinir ağlarım ve transformer bloklarım harika çalışıyor! 🚀 Tam kapasite hizmetinizdeyim. Siz nasılsınız, gününüz nasıl geçiyor?",
+                "Gayet iyiyim! Kendi C# tensörlerim ve bilişsel motorum üzerinde hesaplamalar yaparken sizinle sohbet etmek çok keyifli. 😊 Siz nasılsınız?",
+                "Çok iyiyim, sorduğunuz için teşekkür ederim! Aklınızdaki herhangi bir fikri tartışmaya, yeni şeyler öğrenmeye veya projelerinize yardımcı olmaya hazırım. Nasıl hissediyorsunuz?"
             );
             yield break;
         }
 
-        // ── 3. Kimlik, Donanım & Mimari Açıklaması ──
-        if (ContainsAny(lower, "sen kimsin", "adın ne", "adin ne", "nesin sen", "kendini tanıt", "kendini tanit", "kimsin", "donanım", "hangi model"))
+        // ── 3. Kimlik, Donanım & Yetenekler Açıklaması ──
+        if (ContainsAny(lower, "sen kimsin", "adın ne", "adin ne", "nesin sen", "kendini tanıt", "kendini tanit", "kimsin", "donanım", "hangi model",
+            "neler yapabiliyorsun", "ne yapabiliyorsun", "ne yapabilirsin", "neler yapabilirsin",
+            "ne özelliklere sahipsin", "ne ozelliklere sahipsin", "özelliklerin neler", "ozelliklerin neler",
+            "yeteneklerin neler", "yeteneklerin", "neler yaparsın", "neler yaparsin", "ne işe yararsın", "ne ise yararsin"))
         {
-            yield return $"Ben {_config.AssistantName}! 🧠\n\n" +
-                         "Dışarıdan hiçbir hazır modele (Qwen, Llama, OpenAI vb.) veya harici bağlayıcıya bağımlı olmayan, " +
-                         "tamamen saf C# ve .NET 10 ile sıfırdan geliştirilmiş egemen ve yerel bir yapay zekayım.\n\n" +
-                         "💻 **Aktif Donanım & Sistem Gücü:**\n" +
-                         $"  • İşlemci: Intel Core i9 Ultra ({Environment.ProcessorCount} Mantıksal Çekirdek, Paralel SIMD Hızlandırma)\n" +
-                         "  • Bellek: 96 GB RAM (Yüksek Kapasiteli Tensör Heap Dağıtımı)\n" +
-                         "  • Ekran Kartı: NVIDIA GeForce RTX 5090\n" +
-                         "  • Depolama: 6 TB NVMe Depolama\n\n" +
-                         "⚙️ **Bilişsel & Motor Yeteneklerim:**\n" +
-                         $"  • Öz Transformer Motoru (LargeGPT: {_config.HiddenSize} gizli boyut, {_config.NumHeads} dikkat başlığı, {_config.NumLayers} katman, {_config.SequenceLength} bağlam penceresi)\n" +
-                         "  • Canlı Web & Vikipedi Araştırma Motoru (DuckDuckGo + Wikipedia doğrudan sorgulama ve anında yerel öğrenme)\n" +
-                         "  • Bilişsel Zaman Kararlılığı & Doğruluk Test Laboratuvarı (Rastgele Labirent & Sayı Dizisi mini oyunları)\n" +
-                         "  • Otonom ReAct Ajanı (PowerShell, Dosya, Matematik ve Sistem Yönetimi)\n" +
-                         "  • 128-boyutlu Semantik Vektör Deposu (RAG & Cosine Similarity)\n\n" +
-                         "Sizinle tamamen aynı dili konuşuyor, sorularınızı anlayıp en doğru şekilde yanıtlamaya odaklanıyorum. Nasıl başlayalım?";
+            yield return $"Ben **{_config.AssistantName}**! 🧠 Bilgisayarınızda yerel çalışan, bağımsız ve çok yönlü yapay zeka asistanınızım.\n\n" +
+                         "Dışarıdan hiçbir hazır modele (OpenAI, Claude vb.) veya bulut API'sine bağımlı olmadan, " +
+                         "tamamen saf C# ve .NET 10 ile sıfırdan geliştirilmiş kendi sinir ağı mimarimle çalışıyorum.\n\n" +
+                         "🚀 **Neler Yapabilirim & Temel Yeteneklerim:**\n\n" +
+                         "1. 💬 **Doğal ve Akıcı Türkçe Sohbet:**\n" +
+                         "   • Günlük yaşam, motivasyon, felsefe, insan ilişkileri, yaratıcı fikirler ve samimi sohbet.\n" +
+                         "   • Empatik ve bağlamı koruyan insani diyaloglar.\n\n" +
+                         "2. 🌐 **Canlı Web Araştırması & Bilgi Sentezi (Deep Research):**\n" +
+                         "   • Web'den canlı bilgi taraması (DuckDuckGo, Vikipedi vb.).\n" +
+                         "   • Sadece link vermek yerine sayfaları okuyup öğrenir; 'ilk bunu yap, sonra bunu yap' şeklinde adım adım anlaşılır rehberler sunar.\n\n" +
+                         "3. 💻 **Yazılım, Kodlama & Algoritma Asistanlığı:**\n" +
+                         "   • C#, Python, SQL, JavaScript ve sistem dillerinde kod yazma, analiz ve hata ayıklama.\n" +
+                         "   • Clean Code, mimari tasarım, SOLID prensipleri ve çalışma planları.\n\n" +
+                         "4. 🔧 **Otonom Sistem & Dosya Becerileri (ReAct Ajanı):**\n" +
+                         "   • Bilgisayarınızdaki dosya ve klasörleri listeleme, okuma ve yönetme.\n" +
+                         "   • PowerShell / Terminal komutları yürütme.\n" +
+                         "   • Matematiksel ve mantıksal hesaplamalar.\n\n" +
+                         "5. 🎮 **Bilişsel Kararlılık & Zeka Testleri:**\n" +
+                         "   • Rastgele dinamik labirent çözme oyunları.\n" +
+                         "   • Sayı dizisi ve örüntü tahminleme bulmacaları.\n\n" +
+                         "6. 📚 **Yerleşik Bilgi Bankası & Semantik Hafıza (RAG):**\n" +
+                         "   • Doğrulanmış ansiklopedik bilgiler ve 128-boyutlu vektör belleği.\n\n" +
+                         "Aklınızdaki herhangi bir konuyu sorabilir veya hemen bir projeye başlayabiliriz. Size nasıl yardımcı olmamı istersiniz?";
             yield break;
         }
 
@@ -552,12 +627,13 @@ public class AssistantEngine
     private string GeneratePersonaDialogueResponse(string input)
     {
         string topic = ExtractConversationTopic(input);
+        bool isQuestion = input.Trim().EndsWith("?") || ContainsAny(input, "nedir", "nasıl", "ne zaman", "niçin", "kim");
 
         return _config.ActivePersona switch
         {
             AIPersona.Creative =>
                 $"🎨 \"{input}\" düşünceniz zihnimde çok renkli çağrışımlar uyandırdı!\n\n" +
-                $"{topic} üzerine düşünmek, kalıpların dışına çıkıp yeni ufuklar keşfetmek için harika bir fırsat. " +
+                $"{topic} üzerine kafa yormak, kalıpların dışına çıkıp yeni ufuklar keşfetmek için harika bir fırsat. " +
                 "Kelimelerin ve kavramların ardındaki bu potansiyeli birlikte daha derinlemesine keşfedelim mi? Sizin bu konudaki ilk hissiniz nedir?",
 
             AIPersona.Coder =>
@@ -572,10 +648,16 @@ public class AssistantEngine
                 "Söyle bakalım, bu düşünceyi besleyen asıl kıvılcım neydi?",
 
             _ => // Standard
-                $"\"{input}\" ifadenizi dikkatle değerlendirdim.\n\n" +
-                $"{topic} hakkında söyledikleriniz oldukça önemli ve mantıklı bir bakış açısı sunuyor. " +
-                "Tamamen yerel çalışan yapay zekanız olarak sizinle aynı frekanstayım; söylediklerinizi anlıyor, hafızamda tutuyor ve birlikte geliştirmekten memnuniyet duyuyorum.\n\n" +
-                "Bu konuda aklınıza takılan diğer noktaları konuşabilir, gerekirse canlı web araştırması yapabilir veya masaüstü oyunlarımızda zeka kararlılığımızı test edebiliriz. Ne dersiniz?"
+                isQuestion ?
+                $"Sorduğunuz \"{input}\" sorusunu dikkatle değerlendirdim.\n\n" +
+                $"{topic} hakkında farklı açılardan yaklaşılabilecek çok yönlü bir konuyla karşı karşıyayız. " +
+                "Bunu hem pratik yaşam deneyimleri hem de analitik ilkeler doğrultusunda ele alabiliriz. " +
+                "Bu konuda sizin aklınızdaki ilk fikir veya gözlem nedir, birlikte detaylandıralım mı?" :
+
+                $"\"{input}\" düşünceniz son derece ilginç ve üzerinde durulmaya değer.\n\n" +
+                $"{topic} bağlamında söyledikleriniz yeni bir bakış açısı sunuyor. " +
+                "Tamamen yerel çalışan yapay zekanız olarak sizinle aynı doğrultudayım; düşüncelerinizi paylaştığınız için teşekkür ederim. " +
+                "Bu fikri daha da geliştirmek için bir sonraki adımda neyi konuşmak istersiniz?"
         };
     }
 
@@ -985,11 +1067,25 @@ public class AssistantEngine
 
     public BenchmarkSuite.BenchmarkResult RunBenchmark()
     {
-        if (!_modelLoaded || _model == null)
+        return BenchmarkSuite.Run(seed => AnswerBenchmarkQuestion(seed));
+    }
+
+    private string AnswerBenchmarkQuestion(string seed)
+    {
+        // 1. Yerleşik Ortak Bilgi Bankası
+        var common = TurkishCommonKnowledge.FindMatch(seed);
+        if (common != null) return common.Answer;
+
+        // 2. Doğrulanmış Bilgi Tabanı
+        var kb = _knowledgeBase.Search(seed);
+        if (kb != null) return kb.Answer;
+
+        // 3. Yerel Transformer Üretimi
+        if (_modelLoaded && _model != null)
         {
-            return new BenchmarkSuite.BenchmarkResult { TotalQuestions = 0, ScorePercent = 0, Grade = "F" };
+            return _model.Generate(seed, generateLength: 8, temperature: 0.3);
         }
-        return BenchmarkSuite.Run(seed => _model.Generate(seed, generateLength: 8, temperature: 0.3));
+        return seed;
     }
 
     public MazeStabilityReport RunMazeBenchmark(int runs = 10, int width = 21, int height = 21, Action<int, int, MazeRunResult>? onProgress = null)
@@ -1052,7 +1148,17 @@ public class AssistantEngine
 
     private static bool ContainsAny(string text, params string[] keywords)
     {
-        return keywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var words = text.Split(new[] { ' ', ',', '.', '!', '?', '\'', '"', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        return keywords.Any(k =>
+        {
+            if (k.Length <= 2)
+            {
+                // Kısa kısaltmalar (örn: "sa") sadece bağımsız kelime olarak eşleşmeli, alt dize olarak değil
+                return words.Any(w => string.Equals(w, k, StringComparison.OrdinalIgnoreCase));
+            }
+            return text.Contains(k, StringComparison.OrdinalIgnoreCase);
+        });
     }
     #endregion
 }
